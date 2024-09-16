@@ -11,13 +11,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"superserver/loggers"
 	"time"
 )
 
 const (
-	seleniumPath = "C:/Users/gutro/Downloads/chromedriver-win64/chromedriver-win64/chromedriver.exe"
-	port         = 9515
+	seleniumPath      = "chromedriver.exe"
+	seleniumPathLinux = "chromedriver"
+	port              = 9515
 )
 
 type ReelModule interface {
@@ -158,7 +160,14 @@ func NewReelsDownloader() (ReelModule, error) {
 	var err error
 	dl.driver, err = selenium.NewRemote(caps, fmt.Sprintf("http://localhost:%d", 46429))
 	if err != nil {
-		cmd := exec.Command(seleniumPath, fmt.Sprintf("--port=%d", port))
+		var cmd *exec.Cmd
+		if runtime.GOOS == "windows" {
+			cmd = exec.Command(seleniumPath, fmt.Sprintf("--port=%d", port))
+		}
+		if runtime.GOOS == "linux" {
+			cmd = exec.Command(seleniumPathLinux, fmt.Sprintf("--port=%d", port))
+		}
+
 		err = cmd.Start()
 		if err != nil {
 			return nil, err
@@ -174,6 +183,7 @@ func NewReelsDownloader() (ReelModule, error) {
 				"--disable-dev-shm-usage",
 			},
 		}
+
 		caps["goog:chromeOptions"] = chromeCaps
 
 		dl.driver, err = selenium.NewRemote(caps, fmt.Sprintf("http://localhost:%d", port))
