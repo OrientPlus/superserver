@@ -308,7 +308,7 @@ func (bot *tgBot) handleCommandInstReel(update tgbotapi.Update) {
 		bot.botApi.Send(msg)
 		return
 	}
-	//defer os.Remove(videoPath)
+	defer os.Remove(videoPath)
 
 	// Отправляем видео в чат
 	videoFile, _ := os.OpenFile(videoPath, os.O_RDONLY, os.ModePerm)
