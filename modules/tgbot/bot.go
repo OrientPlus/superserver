@@ -64,8 +64,8 @@ type tgBot struct {
 	lastCatChoise           time.Time
 	lastPes                 tgbotapi.User
 	lastPesChoise           time.Time
-	buttonLuckyPetCounter   int64
-	lastPressButtonLuckyPet time.Time
+	lastPressButtonLuckyCat time.Time
+	lastPressButtonLuckyPes time.Time
 }
 
 func CreateTgBot() TgBot {
@@ -124,7 +124,7 @@ func (bot *tgBot) Run() {
 func (bot *tgBot) getRandomUser(message *tgbotapi.Message, bannedUser []tgbotapi.User) tgbotapi.User {
 	rand.Seed(time.Now().UnixNano())
 	usersCount := len(bot.chats[message.Chat.Title])
-	if usersCount < 2 {
+	if usersCount < 1 {
 		return tgbotapi.User{ID: -1}
 	}
 
@@ -155,7 +155,7 @@ func (bot *tgBot) checkUser(update tgbotapi.Update) {
 		message = update.Message
 	}
 
-	if message.From.UserName == "NamorBot" {
+	if message.From.UserName == "ninjaConnectionBot" {
 		return
 	}
 	if message.Chat.Type == "private" {
@@ -229,23 +229,25 @@ func (bot *tgBot) handleCommandLuckyPet(update tgbotapi.Update) {
 }
 
 func (bot *tgBot) handleCommandButtonLuckyPet(update tgbotapi.Update) {
+	defer func() {
+		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+		if _, err := bot.botApi.Request(callback); err != nil {
+			bot.lg.Error(fmt.Sprintf("Ошибка при отправке CallbackQuery ответа: %s", err))
+		}
+	}()
 	if update.CallbackQuery.Message.Chat.Type == "private" {
 		bot.lg.Info(fmt.Sprintf("нажатие кнопки проигнорировано для персонального чата с ботом. User: %s; Name: %s", update.Message.From.UserName, update.Message.From.UserName))
 		return
 	}
 
 	if update.CallbackQuery.Data == "choose_kitten" {
-		if !bot.lastPressButtonLuckyPet.IsZero() && time.Now().Sub(bot.lastPressButtonLuckyPet) < 30*time.Second && bot.buttonLuckyPetCounter != 0 {
+		if !bot.lastPressButtonLuckyCat.IsZero() && time.Now().Sub(bot.lastPressButtonLuckyCat) < 30*time.Second {
 			return
 		}
-		bot.lastPressButtonLuckyPet = time.Now()
+		bot.lastPressButtonLuckyCat = time.Now()
 		bot.lg.Info(fmt.Sprintf("нажата кнопка 'choose_kitten'; User: %s", update.CallbackQuery.Message.From.UserName))
 
 		bot.lg.Info("нажата кнопка 'котеночек дня' пользователем: " + update.CallbackQuery.Message.From.UserName)
-		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-		if _, err := bot.botApi.Request(callback); err != nil {
-			bot.lg.Error(fmt.Sprintf("Ошибка при отправке CallbackQuery ответа: %s", err))
-		}
 
 		randomUser := bot.getRandomUser(update.CallbackQuery.Message, []tgbotapi.User{bot.lastCat, bot.lastPes})
 		if randomUser.ID == -1 {
@@ -271,17 +273,13 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgbotapi.Update) {
 		bot.botApi.Send(msg)
 		bot.lastCatChoise = time.Now()
 	} else if update.CallbackQuery.Data == "choose_pes" {
-		if !bot.lastPressButtonLuckyPet.IsZero() && time.Now().Sub(bot.lastPressButtonLuckyPet) < 30*time.Second && bot.buttonLuckyPetCounter != 0 {
+		if !bot.lastPressButtonLuckyPes.IsZero() && time.Now().Sub(bot.lastPressButtonLuckyPes) < 30*time.Second {
 			return
 		}
-		bot.lastPressButtonLuckyPet = time.Now()
+		bot.lastPressButtonLuckyPes = time.Now()
 		bot.lg.Info(fmt.Sprintf("нажата кнопка 'choose_pes'; User: %s", update.CallbackQuery.Message.From.UserName))
 
 		bot.lg.Info("нажата кнопка 'псина дня' пользователем: " + update.CallbackQuery.Message.From.UserName)
-		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-		if _, err := bot.botApi.Request(callback); err != nil {
-			bot.lg.Error(fmt.Sprintf("Ошибка при отправке CallbackQuery ответа: %s", err))
-		}
 
 		randomUser := bot.getRandomUser(update.CallbackQuery.Message, []tgbotapi.User{bot.lastPes, bot.lastCat})
 		if randomUser.ID == -1 {
