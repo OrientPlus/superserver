@@ -310,6 +310,14 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgbotapi.Update) {
 }
 
 func (bot *tgBot) handleCommandInstReel(update tgbotapi.Update) {
+	if bot.instModule == nil {
+		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Модуль инстаграма временно недоступен")
+		_, err := bot.botApi.Send(msg)
+		if err != nil {
+			bot.lg.Error(fmt.Sprintf("не удалось отправить сообщение: %v", err))
+		}
+	}
+
 	text := update.Message.Text
 
 	bot.lg.Info("распознана ссылка: " + text)
