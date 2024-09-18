@@ -21,27 +21,51 @@ const (
 )
 
 const (
-	youAlreadyCat string = "Да ты себя видел?? Ты и так котик, тут бот не нужен"
-	youAlreadyPes string = "Да ты и так пЭс сутулый. Выпрямился быстро! Спинку ровно"
+	steelCat1  string = "Не спеши, старый котеночек ещё в силе!"
+	steelCat2  string = "Ещё рано, сегодняшний котеночек не сдал свои позиции!"
+	steelCat3  string = "Погоди, давай дадим старому котеночку насладиться моментом."
+	steelCat4  string = "Спокойно, нынешний котеночек ещё не успел насладиться своим триумфом."
+	steelCat5  string = "Текущий котеночек ещё не наигрался, подождем!"
+	steelCat6  string = "Котеночек дня всё ещё в строю, давай не торопить события."
+	steelCat7  string = "Постой, ещё не вечер для сегодняшнего котеночка!"
+	steelCat8  string = "Терпение, старый котеночек всё ещё царствует!"
+	steelCat9  string = "Рано, котеночек дня всё ещё на своём заслуженном посту."
+	steelCat10 string = "Давай дадим котеночку дня насладиться своим званием чуть дольше!"
+
+	steelPes1  string = "Не спеши, этот пёс ещё не выбегал своё счастье!"
+	steelPes2  string = "Погоди, старый пёс ещё в строю, не время менять его!"
+	steelPes3  string = "Текущий пёс дня ещё не налаялся вдоволь!"
+	steelPes4  string = "Терпение, пёс дня ещё не показал все свои трюки!"
+	steelPes5  string = "Этот пёс ещё не всех порадовал, рановато для нового!"
+	steelPes6  string = "Подожди, пёс дня ещё патрулирует свои владения!"
+	steelPes7  string = "Старый пёс ещё лает, не торопись с новым!"
+	steelPes8  string = "Не время для нового пса, этот ещё хвостом не намахался!"
+	steelPes9  string = "Ещё рановато, пёс дня всё ещё в форме!"
+	steelPes10 string = "Этот пёс ещё не исчерпал свою энергию, давай дадим ему доиграться!"
 )
+
+var steelCatPhrases = []string{steelCat1, steelCat2, steelCat3, steelCat4, steelCat5, steelCat6, steelCat7, steelCat8, steelCat9, steelCat10}
+var steelPesPhrases = []string{steelPes1, steelPes2, steelPes3, steelPes4, steelPes5, steelPes6, steelPes7, steelPes8, steelPes9, steelPes10}
 
 type TgBot interface {
 	Run()
 }
 
 type tgBot struct {
-	lg            loggers.Logger
-	botApi        *tgbotapi.BotAPI
-	reelRegex     *regexp.Regexp
-	funnyCat      *regexp.Regexp
-	unluckyCat    *regexp.Regexp
-	updates       tgbotapi.UpdateConfig
-	instModule    inst.ReelModule
-	chats         map[string][]tgbotapi.User
-	lastCat       tgbotapi.User
-	lastCatChoise time.Time
-	lastPes       tgbotapi.User
-	lastPesChoise time.Time
+	lg                      loggers.Logger
+	botApi                  *tgbotapi.BotAPI
+	reelRegex               *regexp.Regexp
+	funnyCat                *regexp.Regexp
+	unluckyCat              *regexp.Regexp
+	updates                 tgbotapi.UpdateConfig
+	instModule              inst.ReelModule
+	chats                   map[string][]tgbotapi.User
+	lastCat                 tgbotapi.User
+	lastCatChoise           time.Time
+	lastPes                 tgbotapi.User
+	lastPesChoise           time.Time
+	buttonLuckyPetCounter   int64
+	lastPressButtonLuckyPet time.Time
 }
 
 func CreateTgBot() TgBot {
@@ -83,9 +107,15 @@ func (bot *tgBot) Run() {
 
 	updates := bot.botApi.GetUpdatesChan(bot.updates)
 	for update := range updates {
+		if update.Message == nil && update.CallbackQuery == nil {
+			continue
+		}
 		bot.checkUser(update)
 
-		bot.handleCommand(update)
+		go func(upd tgbotapi.Update) {
+			bot.handleCommand(upd)
+		}(update)
+
 	}
 
 }
@@ -118,6 +148,7 @@ func (bot *tgBot) getRandomUser(message *tgbotapi.Message, bannedUser []tgbotapi
 
 func (bot *tgBot) checkUser(update tgbotapi.Update) {
 	var message *tgbotapi.Message
+
 	if update.Message == nil {
 		message = update.CallbackQuery.Message
 	} else {
@@ -179,6 +210,10 @@ func (bot *tgBot) handleCommand(update tgbotapi.Update) {
 func (bot *tgBot) handleCommandLuckyPet(update tgbotapi.Update) {
 	text := update.Message.Text
 	bot.lg.Info(fmt.Sprintf("распознана команда: %s; User: %s", text, update.Message.From.UserName))
+	if update.Message.Chat.Type == "private" {
+		bot.lg.Info(fmt.Sprintf("команда '/start' проигнорирована для персонального чата с ботом. User: %s; Name: %s", update.Message.From.UserName, update.Message.From.UserName))
+		return
+	}
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Нажми кнопку, чтобы выбрать котика или пса дня!")
 
 	// Создаем inline-кнопку
@@ -194,14 +229,17 @@ func (bot *tgBot) handleCommandLuckyPet(update tgbotapi.Update) {
 }
 
 func (bot *tgBot) handleCommandButtonLuckyPet(update tgbotapi.Update) {
-	if update.CallbackQuery.Data == "choose_kitten" {
-		bot.lg.Info(fmt.Sprintf("нажата кнопка 'choose_kitten'; User: %s", update.CallbackQuery.Message.From.UserName))
+	if update.CallbackQuery.Message.Chat.Type == "private" {
+		bot.lg.Info(fmt.Sprintf("нажатие кнопки проигнорировано для персонального чата с ботом. User: %s; Name: %s", update.Message.From.UserName, update.Message.From.UserName))
+		return
+	}
 
-		if update.CallbackQuery.Message.Chat.Type == "private" {
-			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, youAlreadyCat)
-			bot.botApi.Send(msg)
+	if update.CallbackQuery.Data == "choose_kitten" {
+		if !bot.lastPressButtonLuckyPet.IsZero() && time.Now().Sub(bot.lastPressButtonLuckyPet) < 30*time.Second && bot.buttonLuckyPetCounter != 0 {
 			return
 		}
+		bot.lastPressButtonLuckyPet = time.Now()
+		bot.lg.Info(fmt.Sprintf("нажата кнопка 'choose_kitten'; User: %s", update.CallbackQuery.Message.From.UserName))
 
 		bot.lg.Info("нажата кнопка 'котеночек дня' пользователем: " + update.CallbackQuery.Message.From.UserName)
 		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
@@ -223,7 +261,7 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgbotapi.Update) {
 		}
 
 		if isNextDay(bot.lastCatChoise) == false {
-			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "рановато нового выбирать, еще старый хорош")
+			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, getRandomCatAnswerPhrase())
 			bot.botApi.Send(msg)
 			return
 		}
@@ -233,12 +271,11 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgbotapi.Update) {
 		bot.botApi.Send(msg)
 		bot.lastCatChoise = time.Now()
 	} else if update.CallbackQuery.Data == "choose_pes" {
-		bot.lg.Info(fmt.Sprintf("нажата кнопка 'choose_pes'; User: %s", update.CallbackQuery.Message.From.UserName))
-		if update.CallbackQuery.Message.Chat.Type == "private" {
-			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, youAlreadyPes)
-			bot.botApi.Send(msg)
+		if !bot.lastPressButtonLuckyPet.IsZero() && time.Now().Sub(bot.lastPressButtonLuckyPet) < 30*time.Second && bot.buttonLuckyPetCounter != 0 {
 			return
 		}
+		bot.lastPressButtonLuckyPet = time.Now()
+		bot.lg.Info(fmt.Sprintf("нажата кнопка 'choose_pes'; User: %s", update.CallbackQuery.Message.From.UserName))
 
 		bot.lg.Info("нажата кнопка 'псина дня' пользователем: " + update.CallbackQuery.Message.From.UserName)
 		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
@@ -260,7 +297,7 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgbotapi.Update) {
 		}
 
 		if isNextDay(bot.lastPesChoise) == false {
-			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "рановато нового выбирать, еще старый пЭс годен")
+			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, getRandomPesAnswerPhrase())
 			bot.botApi.Send(msg)
 			return
 		}
@@ -334,4 +371,14 @@ func (bot *tgBot) handleCommandInstReel(update tgbotapi.Update) {
 
 func (bot *tgBot) handleCommandHelp(update tgbotapi.Update) {
 
+}
+
+func getRandomCatAnswerPhrase() string {
+	rand.Seed(time.Now().UnixNano())
+	return steelCatPhrases[rand.Intn(len(steelCatPhrases))]
+}
+
+func getRandomPesAnswerPhrase() string {
+	rand.Seed(time.Now().UnixNano())
+	return steelPesPhrases[rand.Intn(len(steelPesPhrases))]
 }

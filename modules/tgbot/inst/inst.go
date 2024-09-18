@@ -4,22 +4,20 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/tebeka/selenium"
+	pw "github.com/playwright-community/playwright-go"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"superserver/loggers"
+	"sync"
 	"time"
 )
 
 const (
-	seleniumPath      = "chromedriver.exe"
-	seleniumPathLinux = "chromedriver"
-	port              = 9515
+	chromiumPath      = "chrome.exe"
+	chromiumPathLinux = "chromium"
 )
 
 type ReelModule interface {
@@ -27,28 +25,75 @@ type ReelModule interface {
 }
 
 type reelsDownloader struct {
-	driver selenium.WebDriver
-	logger loggers.Logger
+	driver         *pw.Playwright
+	browser        pw.Browser
+	logger         loggers.Logger
+	newHandleMutex sync.Mutex
 }
 
 // Парсит страницу с рилсом и скачивает в директорию
 // @param reelURL - URL рилса
 // @return - возвращает имя рилса в директории
 func (r *reelsDownloader) DownloadReel(reelURL string) (string, error) {
-	if err := r.driver.Get("https://fastdl.app/instagram-reels-download"); err != nil {
-		r.logger.Error(err)
+	/*r.newHandleMutex.Lock()
+
+	r.driver.NewSession()
+
+	// Открываем новую вкладку
+	_, err := r.driver.ExecuteScript("window.open()", nil)
+	if err != nil {
+		r.newHandleMutex.Unlock()
+		r.logger.Error(fmt.Sprintf("не удалось открыть новую вкладку: %s", err))
+		return "", err
+	}
+	time.Sleep(200 * time.Millisecond)
+	r.logger.Debug("открыта новая вкладка")
+
+	// Получаем список хендлов всех вкладок
+	tabs, err := r.driver.WindowHandles()
+	if err != nil {
+		r.newHandleMutex.Unlock()
+		r.logger.Error(fmt.Sprintf("не удалось получить список вкладок: %s", err))
 		return "", err
 	}
 
-	time.Sleep(1500 * time.Millisecond)
-	consentButton, err := r.driver.FindElement(selenium.ByCSSSelector, "button.fc-button.fc-cta-consent.fc-primary-button")
-	if err == nil {
-		r.logger.Info("обнаружено всплывающее окно")
-		err = consentButton.Click()
+	// Последняя вкладка - только что созданная. Переключаемся на нее
+	newTabHandle := tabs[len(tabs)-1]
+	err = r.driver.SwitchWindow(newTabHandle)
+	if err != nil {
+		r.newHandleMutex.Unlock()
+		r.logger.Error(fmt.Sprintf("не удалось переключиться на новую вкладку: %s", err))
+		return "", err
+	}
+	r.logger.Debug("удалось переключиться на новую вкладку")
+	defer func() {
+		r.driver.Close()
+		err = r.driver.SwitchWindow(tabs[0])
 		if err != nil {
-			r.logger.Info(fmt.Sprintf("не удалось нажать кнопку всплывающего окна: %v", err))
-			return "", err
+			r.logger.Error(fmt.Sprintf("не удалось переключиться на нулевую вкладку: %s", err))
 		}
+	}()
+	r.newHandleMutex.Unlock()
+
+	if err = r.driver.Get("https://fastdl.app/instagram-reels-download"); err != nil {
+		r.logger.Error(err)
+		return "", err
+	}
+	r.logger.Debug("открыта страница для скачивания")
+
+	var consentButton selenium.WebElement
+	for range 7 {
+		consentButton, err = r.driver.FindElement(selenium.ByCSSSelector, "button.fc-button.fc-cta-consent.fc-primary-button")
+		if err == nil {
+			r.logger.Info("обнаружено всплывающее окно")
+			err = consentButton.Click()
+			if err != nil {
+				r.logger.Info(fmt.Sprintf("не удалось нажать кнопку всплывающего окна: %v", err))
+				return "", err
+			}
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
 
 	// Ищем поле для ввода
@@ -94,11 +139,83 @@ func (r *reelsDownloader) DownloadReel(reelURL string) (string, error) {
 		r.logger.Error(fmt.Sprintf("не удалось получить ссылку для скачивания: %v", err))
 		return "", err
 	}
-	r.logger.Info(fmt.Sprintf("получена ссылка для скачивания видео: %s", downloadLink))
+	r.logger.Info(fmt.Sprintf("получена ссылка для скачивания видео: %s", downloadLink))*/
+
+	// Создание новой вкладки
+	page, err := r.browser.NewPage()
+	if err != nil {
+		r.logger.Error(fmt.Sprintf("не удалось открыть вкладку: %s", err))
+	}
+
+	// Переход на страницу для скачивания
+	if _, err = page.Goto("https://fastdl.app/instagram-reels-download"); err != nil {
+		r.logger.Error(fmt.Sprintf("не удалось открыть страницу для скачивания: %s", err))
+		return "", err
+	}
+	r.logger.Debug("открыта страница для скачивания")
+
+	// Ожидание появления и нажатие кнопки "Consent"
+	for i := 0; i < 7; i++ {
+		consentButton, err := page.QuerySelector("button.fc-button.fc-cta-consent.fc-primary-button")
+		if err == nil && consentButton != nil {
+			r.logger.Info("обнаружено всплывающее окно")
+			err = consentButton.Click()
+			if err != nil {
+				r.logger.Error(fmt.Sprintf("не удалось нажать кнопку всплывающего окна: %v\n", err))
+				return "", err
+			}
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Поиск поля ввода
+	inputElement, err := page.QuerySelector("#search-form-input")
+	if err != nil || inputElement == nil {
+		r.logger.Error(fmt.Sprintf("не удалось обнаружить поле ввода для ссылки: %v\n", err))
+		return "", err
+	}
+
+	// Ввод ссылки на Reel
+	if err = inputElement.Fill(reelURL); err != nil {
+		r.logger.Error(fmt.Sprintf("не удалось ввести ссылку в поле для ввода: %v\n", err))
+		return "", err
+	}
+
+	// Нажатие кнопки "Search"
+	searchButton, err := page.QuerySelector("button.search-form__button")
+	if err != nil || searchButton == nil {
+		r.logger.Error(fmt.Sprintf("не удалось найти кнопку отправки ссылки: %v\n", err))
+		return "", err
+	}
+	if err = searchButton.Click(); err != nil {
+		r.logger.Error(fmt.Sprintf("не удалось нажать кнопку отправки ссылки: %v\n", err))
+		return "", err
+	}
+
+	// Ожидание появления кнопки "Download"
+	var downloadButton pw.ElementHandle
+	for i := 0; i < 25; i++ {
+		downloadButton, err = page.QuerySelector("a.button__download")
+		if err == nil && downloadButton != nil {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+	if err != nil {
+		r.logger.Error(fmt.Sprintf("не удалось найти кнопку скачивания рилса: %v\n", err))
+		return "", err
+	}
+
+	// Получаем ссылку для скачивания
+	downloadLink, err := downloadButton.GetAttribute("href")
+	if err != nil || downloadLink == "" {
+		r.logger.Error(fmt.Sprintf("не удалось получить ссылку для скачивания: %v\n", err))
+		return "", err
+	}
 
 	// Путь для сохранения файла
-	var reelName string
-	reelName, err = extractReelID(reelURL)
+	reelName, err := extractReelID(reelURL)
 	if err != nil {
 		hash := sha256.New()
 		hash.Write([]byte(reelURL))
@@ -155,7 +272,7 @@ func NewReelsDownloader() (ReelModule, error) {
 
 	dl.logger = logger
 
-	caps := selenium.Capabilities{"browserName": "chrome"}
+	/*caps := selenium.Capabilities{"browserName": "chrome"}
 
 	var err error
 	dl.driver, err = selenium.NewRemote(caps, fmt.Sprintf("http://localhost:%d", 46429))
@@ -177,7 +294,7 @@ func NewReelsDownloader() (ReelModule, error) {
 		caps = selenium.Capabilities{"browserName": "chrome"}
 		chromeCaps := map[string]interface{}{
 			"args": []string{
-				"--headless",
+				//"--headless",
 				"--disable-gpu",
 				"--no-sandbox",
 				"--disable-dev-shm-usage",
@@ -190,6 +307,22 @@ func NewReelsDownloader() (ReelModule, error) {
 		if err != nil {
 			return nil, err
 		}
+	}*/
+
+	var err error
+	dl.driver, err = pw.Run()
+	if err != nil {
+		dl.logger.Error(fmt.Sprintf("не удалось запустить драйвер: %s", err))
+		return nil, err
+	}
+
+	// Запуск браузера (в headless-режиме)
+	dl.browser, err = dl.driver.Chromium.Launch(pw.BrowserTypeLaunchOptions{
+		Headless:       pw.Bool(true),
+		ExecutablePath: pw.String(chromiumPath),
+	})
+	if err != nil {
+		dl.logger.Error(fmt.Sprintf("не удалось запустить браузер: %s", err))
 	}
 
 	return &dl, nil
