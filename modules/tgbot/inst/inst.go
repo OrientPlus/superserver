@@ -50,7 +50,7 @@ func (r *reelsDownloader) DownloadReel(reelURL string) (string, error) {
 	r.logger.Debug("открыта страница для скачивания")
 
 	// Ожидание появления и нажатие кнопки "Consent"
-	for i := 0; i < 7; i++ {
+	for i := 0; i < 6; i++ {
 		consentButton, err := page.QuerySelector("button.fc-button.fc-cta-consent.fc-primary-button")
 		if err == nil && consentButton != nil {
 			r.logger.Info("обнаружено всплывающее окно")
