@@ -1,7 +1,7 @@
 APP_NAME := server
 APP_PATH := /home/roman/server
 SERVICE_NAME := server.service
-TMP_DIR := /home/roman/server/tmpDir/inst
+TMP_DIR := /home/roman/server/tmpData/inst
 
 .PHONY: build install start stop restart status reload
 
