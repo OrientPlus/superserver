@@ -1,13 +1,18 @@
 APP_NAME := server
 APP_PATH := /home/roman/server
 SERVICE_NAME := server.service
+TMP_DIR := /home/roman/server/tmpDir/inst
 
 .PHONY: build install start stop restart status reload
 
 # Сборка Go-приложения
 build:
-	mkdir $(APP_PATH)/tmpDir
-	mkdir $(APP_PATH)/tmpDir/inst
+	@if [ ! -d "$(TMP_DIR)" ]; then \
+		echo "Directory $(TMP_DIR) does not exist. Creating..."; \
+		mkdir -p $(TMP_DIR); \
+	else \
+		echo "Directory $(TMP_DIR) already exists."; \
+	fi
 	go build -o $(APP_NAME)
 
 # Установка скомпилированного бинарника в целевую директорию
