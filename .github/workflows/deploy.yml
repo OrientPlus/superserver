@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - master
+  pull_request:
+    branches:
+      - master
 
 jobs:
   deploy:
@@ -18,27 +21,34 @@ jobs:
         with:
           go-version: 1.22
 
-      - name: Build the application
+      - name: Build and deploy using Makefile
         run: |
-          go build -o superserver .
+          make install
 
       - name: Copy files to the server
         uses: appleboy/scp-action@v0.2.3
         with:
           host: 185.142.99.51
-          username: root
+          username: roman
           key: ${{ secrets.DEPLOY_KEY }}
-          source: "superserver"
-          target: "/home/roman/superserver"
+          source: "$(APP_NAME) $(SERVICE_NAME)"
+          target: "$(APP_PATH)"
 
-      - name: Restart the application on server
+      - name: SSH into server and stop the service
         uses: appleboy/ssh-action@v0.1.8
         with:
           host: 185.142.99.51
           username: root
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
-            pkill superserver || true
-            cd /home/roman/superserver
-            nohup ./app &
-            
+            sudo make stop
+
+      - name: Reload systemd and restart the service
+        uses: appleboy/ssh-action@v0.1.8
+        with:
+          host: 185.142.99.51
+          username: root
+          key: ${{ secrets.DEPLOY_KEY }}
+          script: |
+            sudo make reload
+            sudo make start

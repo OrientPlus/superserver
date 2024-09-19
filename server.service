@@ -1,0 +1,13 @@
+[Unit]
+Description=SuperServer App
+After=network.target
+
+[Service]
+ExecStart=/home/roman/superserver/server
+WorkingDirectory=/root/server
+Restart=always
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
