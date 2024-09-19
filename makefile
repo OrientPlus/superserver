@@ -9,7 +9,7 @@ TMP_DIR := /home/roman/server/tmpData/inst
 build:
 	@if [ ! -d "$(TMP_DIR)" ]; then \
 		echo "Directory $(TMP_DIR) does not exist. Creating..."; \
-		mkdir -p $(TMP_DIR); \
+		sudo mkdir -p $(TMP_DIR); \
 	else \
 		echo "Directory $(TMP_DIR) already exists."; \
 	fi
