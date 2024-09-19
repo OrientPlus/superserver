@@ -1,5 +1,5 @@
 APP_NAME := server
-APP_PATH := /home/roman/superserver/
+APP_PATH := /home/roman/superserver
 SERVICE_NAME := server.service
 
 .PHONY: build install start stop restart status reload
