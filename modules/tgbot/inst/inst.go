@@ -36,7 +36,7 @@ func (r *reelsDownloader) DownloadReel(reelURL string) (string, error) {
 		r.logger.Error(fmt.Sprintf("не удалось открыть вкладку: %s", err))
 	}
 	defer func() {
-		err := page.Close()
+		err = page.Close()
 		if err != nil {
 			r.logger.Error(fmt.Sprintf("не удалось закрыть вкладку: %s", err))
 		}
