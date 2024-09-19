@@ -124,7 +124,7 @@ func (bot *tgBot) Run() {
 func (bot *tgBot) getRandomUser(message *tgbotapi.Message, bannedUser []tgbotapi.User) tgbotapi.User {
 	rand.Seed(time.Now().UnixNano())
 	usersCount := len(bot.chats[message.Chat.Title])
-	if usersCount < 1 {
+	if usersCount < 2 {
 		return tgbotapi.User{ID: -1}
 	}
 
