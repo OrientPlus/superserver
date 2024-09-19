@@ -11,6 +11,10 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      HOST: root@185.142.99.51
+      DEPLOY_DIRECTORY: /root/superserver
+      CONFIG_PATH:
 
     steps:
       - name: Checkout code
@@ -29,7 +33,7 @@ jobs:
         uses: appleboy/scp-action@v0.2.3
         with:
           host: 185.142.99.51
-          username: roman
+          username: root
           key: ${{ secrets.DEPLOY_KEY }}
           source: "$(APP_NAME) $(SERVICE_NAME)"
           target: "$(APP_PATH)"

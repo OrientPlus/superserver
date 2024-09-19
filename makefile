@@ -6,6 +6,8 @@ SERVICE_NAME := server.service
 
 # Сборка Go-приложения
 build:
+	mkdir $(APP_PATH)/tmpDir
+	mkdir $(APP_PATH)/tmpDir/inst
 	go build -o $(APP_NAME)
 
 # Установка скомпилированного бинарника в целевую директорию
