@@ -3,8 +3,8 @@ Description=SuperServer App
 After=network.target
 
 [Service]
-ExecStart=/home/roman/superserver/server
-WorkingDirectory=/root/server
+ExecStart=/home/roman/server/server
+WorkingDirectory=/home/roman/server
 Restart=always
 User=root
 Group=root
