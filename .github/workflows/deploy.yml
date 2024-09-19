@@ -30,7 +30,7 @@ jobs:
           make install
 
       - name: Copy files to the server
-        uses: appleboy/scp-action@v0.2.3
+        uses: appleboy/scp-action@v0.1.3
         with:
           host: 185.142.99.51
           username: root
