@@ -7,7 +7,6 @@ TMP_DIR := /home/roman/server/tmpData/inst
 
 # Сборка Go-приложения
 build:
-	export PATH=$$PATH:/usr/local/go/bin; \
 	if ! command -v go &> /dev/null; then \
 		echo "Go is not installed or not in PATH"; \
 		exit 1; \
