@@ -13,7 +13,8 @@ build:
 	else \
 		echo "Directory $(TMP_DIR) already exists."; \
 	fi
-	go build -o $(APP_NAME)
+	ls -l
+	go build -o $(APP_NAME) .
 
 # Установка скомпилированного бинарника в целевую директорию
 install: build
