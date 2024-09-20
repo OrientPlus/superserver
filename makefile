@@ -17,11 +17,6 @@ build:
 	/usr/local/go/bin/go version
 	/usr/local/go/bin/go build -o $(APP_NAME) -buildvcs=false .
 
-# Установка скомпилированного бинарника в целевую директорию
-install: build
-	sudo cp $(APP_NAME) $(APP_PATH)
-	sudo chmod +x $(APP_PATH)/$(APP_NAME)
-
 reload:
 	sudo cp $(SERVICE_NAME) /etc/systemd/system/
 	sudo systemctl daemon-reload
