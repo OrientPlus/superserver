@@ -36,6 +36,7 @@ jobs:
           username: ${{ env.USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
+            export PATH=$PATH:/usr/local/go/bin
             cd ${{ env.DEPLOY_DIRECTORY }}
             make install
 
