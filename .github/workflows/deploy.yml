@@ -46,6 +46,7 @@ jobs:
           username: ${{ env.USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
+            cd ${{ env.DEPLOY_DIRECTORY }}
             sudo make stop
 
       - name: Reload systemd and restart the service
@@ -55,5 +56,6 @@ jobs:
           username: ${{ env.USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
+            cd ${{ env.DEPLOY_DIRECTORY }}
             sudo make reload
             sudo make start
