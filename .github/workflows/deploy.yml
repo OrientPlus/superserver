@@ -26,7 +26,7 @@ jobs:
           host: ${{ env.HOST }}
           username: ${{ env.USER }}
           key: ${{ secrets.DEPLOY_KEY }}
-          source: "."  # Копируем весь код на сервер
+          source: "."
           target: "${{ env.DEPLOY_DIRECTORY }}"
 
       - name: SSH into server and build the application
@@ -36,8 +36,8 @@ jobs:
           username: ${{ env.USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
-            cd $DEPLOY_DIRECTORY
-            make install  # Сборка и установка приложения
+            cd ${{ env.DEPLOY_DIRECTORY }}
+            make install
 
       - name: SSH into server and stop the service
         uses: appleboy/ssh-action@v0.1.8
