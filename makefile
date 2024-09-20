@@ -18,7 +18,9 @@ build:
 
 # Установка скомпилированного бинарника в целевую директорию
 install: build
+	echo "Run copy"
 	sudo cp $(APP_NAME) $(APP_PATH)
+	echo "Change access"
 	sudo chmod +x $(APP_PATH)/$(APP_NAME)
 
 reload:
