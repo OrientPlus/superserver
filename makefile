@@ -9,7 +9,7 @@ TMP_DIR := /home/roman/server/tmpData/inst
 build:
 	@if ! command -v go &> /dev/null; then \
     		echo "Go is not installed or not in PATH"; \
-    		/usr/local/go/bin/go version\
+    		ls -l /usr/local/\
     		exit 1; \
     fi
 
