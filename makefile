@@ -15,7 +15,7 @@ build:
 	fi
 	sudo su root
 	/usr/local/go/bin/go version
-	/usr/local/go/bin/go build -o $(APP_NAME) .
+	/usr/local/go/bin/go build -o $(APP_NAME) -buildvcs=false .
 
 # Установка скомпилированного бинарника в целевую директорию
 install: build
