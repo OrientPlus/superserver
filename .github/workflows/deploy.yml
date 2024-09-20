@@ -12,7 +12,8 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      HOST: root@185.142.99.51
+      HOST: 185.142.99.51
+      USER: root
       DEPLOY_DIRECTORY: /home/roman/server
 
     steps:
@@ -22,8 +23,8 @@ jobs:
       - name: Copy files to the server
         uses: appleboy/scp-action@v0.1.3
         with:
-          host: 185.142.99.51
-          username: root
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           source: "."  # Копируем весь код на сервер
           target: "${{ env.DEPLOY_DIRECTORY }}"
@@ -31,8 +32,8 @@ jobs:
       - name: SSH into server and build the application
         uses: appleboy/ssh-action@v0.1.8
         with:
-          host: 185.142.99.51
-          username: root
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
             cd $DEPLOY_DIRECTORY
@@ -41,8 +42,8 @@ jobs:
       - name: SSH into server and stop the service
         uses: appleboy/ssh-action@v0.1.8
         with:
-          host: 185.142.99.51
-          username: root
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
             sudo make stop
@@ -50,8 +51,8 @@ jobs:
       - name: Reload systemd and restart the service
         uses: appleboy/ssh-action@v0.1.8
         with:
-          host: 185.142.99.51
-          username: root
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           script: |
             sudo make reload
