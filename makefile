@@ -7,17 +7,13 @@ TMP_DIR := /home/roman/server/tmpData/inst
 
 # Сборка Go-приложения
 build:
-	if ! command -v go &> /dev/null; then \
-		echo "Go is not installed or not in PATH"; \
-		exit 1; \
-	fi
-
 	@if [ ! -d "$(TMP_DIR)" ]; then \
 		echo "Directory $(TMP_DIR) does not exist. Creating..."; \
 		sudo mkdir -p $(TMP_DIR); \
 	else \
 		echo "Directory $(TMP_DIR) already exists."; \
 	fi
+	sudo su root
 	go version
 	go build -o $(APP_NAME) .
 
