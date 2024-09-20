@@ -14,8 +14,8 @@ build:
 		echo "Directory $(TMP_DIR) already exists."; \
 	fi
 	sudo su root
-	go version
-	go build -o $(APP_NAME) .
+	/usr/local/go/bin/go version
+	/usr/local/go/bin/go build -o $(APP_NAME) .
 
 # Установка скомпилированного бинарника в целевую директорию
 install: build
