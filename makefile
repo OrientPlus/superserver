@@ -7,11 +7,11 @@ TMP_DIR := /home/roman/server/tmpData/inst
 
 # Сборка Go-приложения
 build:
-	@if ! command -v go &> /dev/null; then \
-    		echo "Go is not installed or not in PATH"; \
-    		ls -l /usr/local/\
-    		exit 1; \
-    fi
+	export PATH=$$PATH:/usr/local/go/bin; \
+	if ! command -v go &> /dev/null; then \
+		echo "Go is not installed or not in PATH"; \
+		exit 1; \
+	fi
 
 	@if [ ! -d "$(TMP_DIR)" ]; then \
 		echo "Directory $(TMP_DIR) does not exist. Creating..."; \
