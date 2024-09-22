@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"os"
 	"regexp"
+	"superserver/db"
+	"superserver/entity"
 	"superserver/loggers"
 	"superserver/modules/tgbot/inst"
 	"time"
@@ -16,8 +18,13 @@ const token string = "6739454793:AAFTDRXnqDTNGvN7IWQBom6a5YkHeO6YpzQ"
 type Command string
 
 const (
-	funnyCat   Command = "funny_cat"
-	instaReels Command = "insta_reels"
+	helpGroupChatOutput string = "/start - для запуска меню\n" +
+		"\nКнпчк 'Котик дня' - выбирает случайным образом 'котика дня' среди участников чата" +
+		"\nКнпчк 'Псина дня' - выбирает случайным образом 'пса дня' среди участников чата" +
+		"\nБот знает только тех участников чата, которые хоть раз писали в чат с момента добавления бота." +
+		"\nКотик и пес дня сбрасываются после 24:00." +
+		"\nБот распознает ссылки на instagram reels, скачивает рилс и отправляет в чат вместо распознанной ссылки, с указанием того, кто скинул рилс."
+	helpPrivateChatOutput string = "Бот распознает ссылки на instagram reels, скачивает рилс и отправляет в чат вместо распознанной ссылки"
 )
 
 const (
@@ -52,20 +59,14 @@ type TgBot interface {
 }
 
 type tgBot struct {
-	lg                      loggers.Logger
-	botApi                  *tgbotapi.BotAPI
-	reelRegex               *regexp.Regexp
-	funnyCat                *regexp.Regexp
-	unluckyCat              *regexp.Regexp
-	updates                 tgbotapi.UpdateConfig
-	instModule              inst.ReelModule
-	chats                   map[string][]tgbotapi.User
-	lastCat                 tgbotapi.User
-	lastCatChoise           time.Time
-	lastPes                 tgbotapi.User
-	lastPesChoise           time.Time
-	lastPressButtonLuckyCat time.Time
-	lastPressButtonLuckyPes time.Time
+	logger       loggers.Logger
+	botApi       *tgbotapi.BotAPI
+	reelRegex    *regexp.Regexp
+	funnyCat     *regexp.Regexp
+	unluckyCat   *regexp.Regexp
+	updateConfig tgbotapi.UpdateConfig
+	instModule   inst.ReelModule
+	repo         db.Repo
 }
 
 func CreateTgBot() TgBot {
@@ -74,20 +75,20 @@ func CreateTgBot() TgBot {
 	logger := loggers.CreateLogger(loggers.LoggerConfig{
 		Name:           "MainLog",
 		Path:           "./MainLogs.txt",
-		Level:          loggers.DebugLevel,
-		WriteToConsole: true,
+		Level:          loggers.InfoLevel,
+		WriteToConsole: false,
 		UseColor:       true,
 	})
 
 	var err error
-	bot.lg = logger
+	bot.logger = logger
 	bot.botApi, err = tgbotapi.NewBotAPI(token)
 	if err != nil {
-		bot.lg.Error(err.Error())
+		bot.logger.Error(err.Error())
 	}
 
-	bot.updates = tgbotapi.NewUpdate(0)
-	bot.updates.Timeout = 60
+	bot.updateConfig = tgbotapi.NewUpdate(0)
+	bot.updateConfig.Timeout = 60
 
 	bot.reelRegex = regexp.MustCompile(`^https?://(www\.)?instagram\.com/(reel|reels)/[A-Za-z0-9_-]+/?`)
 	bot.funnyCat = regexp.MustCompile(`^\/lucky_cat$`)
@@ -95,24 +96,18 @@ func CreateTgBot() TgBot {
 
 	bot.instModule, err = inst.NewReelsDownloader()
 	if err != nil {
-		bot.lg.Error(err.Error())
+		bot.logger.Error(err.Error())
 	}
-
-	bot.chats = make(map[string][]tgbotapi.User)
 
 	return &bot
 }
 
 func (bot *tgBot) Run() {
 
-	updates := bot.botApi.GetUpdatesChan(bot.updates)
+	updates := bot.botApi.GetUpdatesChan(bot.updateConfig)
 	for update := range updates {
-		if update.Message == nil && update.CallbackQuery == nil {
-			continue
-		}
-		bot.checkUser(update)
-
 		go func(upd tgbotapi.Update) {
+			bot.checkUser(update)
 			bot.handleCommand(upd)
 		}(update)
 
@@ -120,23 +115,44 @@ func (bot *tgBot) Run() {
 
 }
 
-// Функция для выбора случайного пользователя
-func (bot *tgBot) getRandomUser(message *tgbotapi.Message, bannedUser []tgbotapi.User) tgbotapi.User {
+func (bot *tgBot) handleCommand(update tgbotapi.Update) {
+	message := entity.GetMessage(update)
+	if message != nil {
+		text := message.Text
+		if bot.reelRegex.MatchString(text) {
+			bot.handleCommandInstReel(update)
+		}
+		if message.Text == "/start" {
+			bot.handleCommandLuckyPet(update)
+		}
+		if message.Text == "/help" {
+			bot.handleCommandHelp(update)
+		}
+		if message.Text == "/random" {
+			bot.handleCommandRandom(update)
+		}
+
+		return
+	}
+	if update.CallbackQuery != nil {
+		bot.handleCommandButtonLuckyPet(update)
+		return
+	}
+}
+
+func (bot *tgBot) getRandomUser(parameters entity.Chat) tgbotapi.User {
 	rand.Seed(time.Now().UnixNano())
-	usersCount := len(bot.chats[message.Chat.Title])
+	usersCount := len(parameters.Members)
 	if usersCount < 2 {
 		return tgbotapi.User{ID: -1}
 	}
 
 	var luckyUser tgbotapi.User
 	for range 10 {
-		luckyUser = bot.chats[message.Chat.Title][rand.Intn(usersCount)]
+		luckyUser = parameters.Members[rand.Intn(usersCount)]
 		badUser := false
-		for _, user := range bannedUser {
-			if luckyUser.ID == user.ID {
-				badUser = true
-				break
-			}
+		if luckyUser.ID == parameters.LastCat.ID || luckyUser.ID == parameters.LastPes.ID {
+			badUser = true
 		}
 		if badUser == false {
 			break
@@ -147,33 +163,24 @@ func (bot *tgBot) getRandomUser(message *tgbotapi.Message, bannedUser []tgbotapi
 }
 
 func (bot *tgBot) checkUser(update tgbotapi.Update) {
-	var message *tgbotapi.Message
-
-	if update.Message == nil {
-		message = update.CallbackQuery.Message
-	} else {
-		message = update.Message
-	}
+	message := entity.GetMessage(update)
 
 	if message.From.UserName == "ninjaConnectionBot" {
 		return
 	}
-	if message.Chat.Type == "private" {
+	if message.Chat.Type == "private" || message.Chat.Type == "channel" {
 		return
 	}
 
 	chatName := message.Chat.Title
 	if chatName == "" {
-		bot.lg.Warn("не удалось определить имя группы")
+		bot.logger.Warn("не удалось определить имя группы")
+		return
 	}
 
-	for _, user := range bot.chats[chatName] {
-		if user.ID == message.From.ID {
-			return
-		}
+	if bot.repo.CheckUserAndGroup(message.Chat, message.From) {
+		return
 	}
-	bot.lg.Info("добавлен новый пользователь: " + message.From.UserName)
-	bot.chats[chatName] = append(bot.chats[chatName], *message.From)
 }
 
 func isNextDay(prev time.Time) bool {
@@ -186,32 +193,12 @@ func isNextDay(prev time.Time) bool {
 	return currentTime.Year() != prev.Year() || currentTime.YearDay() != prev.YearDay()
 }
 
-func (bot *tgBot) handleCommand(update tgbotapi.Update) {
-	if update.Message != nil {
-		text := update.Message.Text
-		if bot.reelRegex.MatchString(text) {
-			bot.handleCommandInstReel(update)
-		}
-		if update.Message.Text == "/start" {
-			bot.handleCommandLuckyPet(update)
-		}
-		if update.Message.Text == "/help" {
-			bot.handleCommandHelp(update)
-		}
-
-		return
-	}
-	if update.CallbackQuery != nil {
-		bot.handleCommandButtonLuckyPet(update)
-		return
-	}
-}
-
 func (bot *tgBot) handleCommandLuckyPet(update tgbotapi.Update) {
-	text := update.Message.Text
-	bot.lg.Info(fmt.Sprintf("распознана команда: %s; User: %s", text, update.Message.From.UserName))
-	if update.Message.Chat.Type == "private" {
-		bot.lg.Info(fmt.Sprintf("команда '/start' проигнорирована для персонального чата с ботом. User: %s; Name: %s", update.Message.From.UserName, update.Message.From.UserName))
+	message := entity.GetMessage(update)
+	text := message.Text
+	bot.logger.Info(fmt.Sprintf("распознана команда: %s; User: %s", text, update.Message.From.UserName))
+	if message.Chat.Type == "private" || message.Chat.Type == "channel" {
+		bot.logger.Info(fmt.Sprintf("команда '/start' проигнорирована. User: %s; Name: %s", message.From.UserName, message.From.FirstName))
 		return
 	}
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Нажми кнопку, чтобы выбрать котика или пса дня!")
@@ -224,7 +211,7 @@ func (bot *tgBot) handleCommandLuckyPet(update tgbotapi.Update) {
 	msg.ReplyMarkup = keyboardCat
 	_, err := bot.botApi.Send(msg)
 	if err != nil {
-		bot.lg.Error(fmt.Sprintf("не удалось отправить сообщение %s: %v", msg.Text, err))
+		bot.logger.Error(fmt.Sprintf("не удалось отправить сообщение %s: %v", msg.Text, err))
 	}
 }
 
@@ -232,37 +219,37 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgbotapi.Update) {
 	defer func() {
 		callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
 		if _, err := bot.botApi.Request(callback); err != nil {
-			bot.lg.Error(fmt.Sprintf("Ошибка при отправке CallbackQuery ответа: %s", err))
+			bot.logger.Error(fmt.Sprintf("Ошибка при отправке CallbackQuery ответа: %s", err))
 		}
 	}()
-	if update.CallbackQuery.Message.Chat.Type == "private" {
-		bot.lg.Info(fmt.Sprintf("нажатие кнопки проигнорировано для персонального чата с ботом. User: %s; Name: %s", update.Message.From.UserName, update.Message.From.UserName))
+	message := entity.GetMessage(update)
+	if message.Chat.Type == "private" || message.Chat.Type == "channel" {
+		bot.logger.Info(fmt.Sprintf("нажатие кнопки проигнорировано для типа чата %s. User tag: %s; Name: %s", message.Chat.Type, message.From.UserName, message.From.FirstName))
 		return
 	}
 
 	if update.CallbackQuery.Data == "choose_kitten" {
-		if !bot.lastPressButtonLuckyCat.IsZero() && time.Now().Sub(bot.lastPressButtonLuckyCat) < 30*time.Second {
+		parameters := bot.repo.GetChatParameters(message.Chat.Title)
+		if !parameters.LastPressButtonLuckyCat.IsZero() && time.Now().Sub(parameters.LastPressButtonLuckyCat) < 30*time.Second {
 			return
 		}
-		bot.lastPressButtonLuckyCat = time.Now()
-		bot.lg.Info(fmt.Sprintf("нажата кнопка 'choose_kitten'; User: %s", update.CallbackQuery.Message.From.UserName))
+		parameters.LastPressButtonLuckyCat = time.Now()
+		bot.logger.Info(fmt.Sprintf("нажата кнопка 'choose_kitten'; User tag: %s", message.From.UserName))
 
-		bot.lg.Info("нажата кнопка 'котеночек дня' пользователем: " + update.CallbackQuery.Message.From.UserName)
-
-		randomUser := bot.getRandomUser(update.CallbackQuery.Message, []tgbotapi.User{bot.lastCat, bot.lastPes})
+		randomUser := bot.getRandomUser(parameters)
 		if randomUser.ID == -1 {
-			bot.lg.Warn(fmt.Sprintf("в чате %s обнаружено слишком мало участников для выполнения команды", update.CallbackQuery.Message.Chat.Title))
+			bot.logger.Warn(fmt.Sprintf("в чате %s обнаружено слишком мало участников для выполнения команды", update.CallbackQuery.Message.Chat.Title))
 			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Пока что я знаю мало людей в чате, чтобы выбрать котеночка( Попробуй позже")
 			bot.botApi.Send(msg)
 			return
 		} else if randomUser.ID == -2 {
-			bot.lg.Warn(fmt.Sprintf("в чате %s не удалось выбить рандомного юзера", update.CallbackQuery.Message.Chat.Title))
+			bot.logger.Warn(fmt.Sprintf("в чате %s не удалось выбить рандомного юзера", update.CallbackQuery.Message.Chat.Title))
 			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Вас слишком мало чате, не получилось выбрать котика( Попробуй позже")
 			bot.botApi.Send(msg)
 			return
 		}
 
-		if isNextDay(bot.lastCatChoise) == false {
+		if isNextDay(bot.lastCatChoice) == false {
 			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, getRandomCatAnswerPhrase())
 			bot.botApi.Send(msg)
 			return
@@ -271,30 +258,31 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgbotapi.Update) {
 		// Формируем сообщение с упоминанием пользователя
 		msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, fmt.Sprintf("@%s, поздравляю, ты котеночек дня! Чмок в пупок!", randomUser.UserName))
 		bot.botApi.Send(msg)
-		bot.lastCatChoise = time.Now()
+		bot.lastCatChoice = time.Now()
+		bot.lastCat = randomUser
 	} else if update.CallbackQuery.Data == "choose_pes" {
 		if !bot.lastPressButtonLuckyPes.IsZero() && time.Now().Sub(bot.lastPressButtonLuckyPes) < 30*time.Second {
 			return
 		}
 		bot.lastPressButtonLuckyPes = time.Now()
-		bot.lg.Info(fmt.Sprintf("нажата кнопка 'choose_pes'; User: %s", update.CallbackQuery.Message.From.UserName))
+		bot.logger.Info(fmt.Sprintf("нажата кнопка 'choose_pes'; User: %s", update.CallbackQuery.Message.From.UserName))
 
-		bot.lg.Info("нажата кнопка 'псина дня' пользователем: " + update.CallbackQuery.Message.From.UserName)
+		bot.logger.Info("нажата кнопка 'псина дня' пользователем: " + update.CallbackQuery.Message.From.UserName)
 
 		randomUser := bot.getRandomUser(update.CallbackQuery.Message, []tgbotapi.User{bot.lastPes, bot.lastCat})
 		if randomUser.ID == -1 {
-			bot.lg.Warn(fmt.Sprintf("в чате %s обнаружено слишком мало участников для выполнения команды", update.CallbackQuery.Message.Chat.Title))
+			bot.logger.Warn(fmt.Sprintf("в чате %s обнаружено слишком мало участников для выполнения команды", update.CallbackQuery.Message.Chat.Title))
 			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Пока что я знаю мало людей в чате, чтобы выбрать псину( Попробуй позже")
 			bot.botApi.Send(msg)
 			return
 		} else if randomUser.ID == -2 {
-			bot.lg.Warn(fmt.Sprintf("в чате %s не удалось выбить рандомного юзера", update.CallbackQuery.Message.Chat.Title))
+			bot.logger.Warn(fmt.Sprintf("в чате %s не удалось выбить рандомного юзера", update.CallbackQuery.Message.Chat.Title))
 			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Вас слишком мало чате, не получилось выбрать псину( Попробуй позже")
 			bot.botApi.Send(msg)
 			return
 		}
 
-		if isNextDay(bot.lastPesChoise) == false {
+		if isNextDay(bot.lastPesChoice) == false {
 			msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, getRandomPesAnswerPhrase())
 			bot.botApi.Send(msg)
 			return
@@ -303,26 +291,25 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgbotapi.Update) {
 		// Формируем сообщение с упоминанием пользователя
 		msg := tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, fmt.Sprintf("@%s, поздравляю, ты пЭс этого дня! ", randomUser.UserName))
 		bot.botApi.Send(msg)
-		bot.lastPesChoise = time.Now()
+		bot.lastPesChoice = time.Now()
+		bot.lastPes = randomUser
 	}
 }
 
 func (bot *tgBot) handleCommandInstReel(update tgbotapi.Update) {
+	message := entity.GetMessage(update)
+	text := message.Text
+	bot.logger.Info("распознана ссылка: " + text)
+
 	if bot.instModule == nil {
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Модуль инстаграма временно недоступен")
-		_, err := bot.botApi.Send(msg)
-		if err != nil {
-			bot.lg.Error(fmt.Sprintf("не удалось отправить сообщение: %v", err))
-		}
+		bot.sendMessage(message, "Модуль инстаграма временно недоступен((")
+		return
 	}
 
-	text := update.Message.Text
-
-	bot.lg.Info("распознана ссылка: " + text)
-	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Вижу ссыль, обрабатываю!")
-	answerMsg, err := bot.botApi.Send(msg)
+	answerMsg, err := bot.sendMessage(message, "Вижу ссыль, обрабатываю!")
 	if err != nil {
-		bot.lg.Error(fmt.Sprintf("не удалось отправить сообщение: %v", err))
+		bot.logger.Error(fmt.Sprintf("не удалось отправить сообщение: %v", err))
+		return
 	}
 	defer func() {
 		deleteMsg := tgbotapi.DeleteMessageConfig{
@@ -331,51 +318,73 @@ func (bot *tgBot) handleCommandInstReel(update tgbotapi.Update) {
 		}
 		_, err = bot.botApi.Request(deleteMsg)
 		if err != nil {
-			bot.lg.Error(fmt.Sprintf("не удалось удалить сообщение: %v", err))
+			bot.logger.Warn(fmt.Sprintf("не удалось удалить сообщение: %v", err))
 		}
 	}()
 
 	link := bot.reelRegex.FindString(text)
 	if link == "" {
-		bot.lg.Error("ссылка не отработана" + text)
-		msg = tgbotapi.NewMessage(update.Message.Chat.ID, "Я не смог распознать ссыль((( У меня лапки...")
-		bot.botApi.Send(msg)
+		bot.logger.Error("ссылка не отработана" + text)
+		bot.sendMessage(message, "Я не смог распознать ссыль((( У меня лапки...")
 		return
 	}
 
 	// Скачиваем видео
 	videoPath, err := bot.instModule.DownloadReel(link)
-	bot.lg.Info(fmt.Sprintf("скачано видео: %s", videoPath))
+	bot.logger.Info(fmt.Sprintf("скачано видео: %s", videoPath))
 	if err != nil {
-		msg = tgbotapi.NewMessage(update.Message.Chat.ID, "Я не смог скачать видосик((( У меня лапки...")
-		bot.botApi.Send(msg)
+		bot.sendMessage(message, "Я не смог скачать видосик((( У меня лапки...")
 		return
 	}
-	defer os.Remove(videoPath)
 
 	// Отправляем видео в чат
 	videoFile, _ := os.OpenFile(videoPath, os.O_RDONLY, os.ModePerm)
-	videoMsg := tgbotapi.NewVideo(update.Message.Chat.ID, tgbotapi.FileReader{
-		Name:   "video.mp4", // Название файла
-		Reader: videoFile,   // Файл, который нужно отправить
+	videoMsg := tgbotapi.NewVideo(message.Chat.ID, tgbotapi.FileReader{
+		Name:   "video.mp4",
+		Reader: videoFile,
 	})
-	videoMsg.Caption = update.Message.From.UserName + " скинул видос"
+	if message.Chat.Type == "group" || message.Chat.Type == "supergroup" {
+		videoMsg.Caption = update.Message.From.UserName + " скинул видос"
+	}
+
 	_, err = bot.botApi.Send(videoMsg)
 	if err != nil {
-		bot.lg.Error(fmt.Sprintf("не удалось отправить видео в чат: %v", err))
+		bot.logger.Error(fmt.Sprintf("не удалось отправить видео в чат %s; error: %s", message.Chat.Title, err))
+		return
 	}
 
 	deleteMsg := tgbotapi.DeleteMessageConfig{
-		ChatID:    update.Message.Chat.ID,
-		MessageID: update.Message.MessageID,
+		ChatID:    message.Chat.ID,
+		MessageID: message.MessageID,
 	}
 	_, err = bot.botApi.Request(deleteMsg)
 	if err != nil {
-		bot.lg.Error(fmt.Sprintf("не удалось удалить сообщение: %v", err))
+		bot.logger.Error(fmt.Sprintf("не удалось удалить сообщение: %s", err))
 	}
 }
 
 func (bot *tgBot) handleCommandHelp(update tgbotapi.Update) {
+	var message *tgbotapi.Message
+	if update.Message == nil {
+		message = update.CallbackQuery.Message
+	} else {
+		message = update.Message
+	}
+
+	var msg tgbotapi.MessageConfig
+	if message.Chat.Type == "private" {
+		msg = tgbotapi.NewMessage(update.Message.Chat.ID, helpPrivateChatOutput)
+	} else {
+		msg = tgbotapi.NewMessage(update.Message.Chat.ID, helpGroupChatOutput)
+	}
+	_, err := bot.botApi.Send(msg)
+	if err != nil {
+		bot.logger.Error(fmt.Sprintf("не удалось отправить сообщение %s; Chat ID: %s; From: %s", err.Error(), message.Chat.ID, message.Chat.UserName))
+	}
+
+}
+
+func (bot *tgBot) goEatEvent() {
 
 }
 
@@ -387,4 +396,16 @@ func getRandomCatAnswerPhrase() string {
 func getRandomPesAnswerPhrase() string {
 	rand.Seed(time.Now().UnixNano())
 	return steelPesPhrases[rand.Intn(len(steelPesPhrases))]
+}
+
+func (bot *tgBot) sendMessage(message *tgbotapi.Message, text string) (tgbotapi.Message, error) {
+	msg := tgbotapi.NewMessage(message.Chat.ID, text)
+	sentMsg, err := bot.botApi.Send(msg)
+	if err != nil {
+		errorMsg := fmt.Sprintf("не удалось отправить сообщение %s в чат %s; error: %s", text, message.Chat.Title, err)
+		bot.logger.Error(errorMsg)
+		return tgbotapi.Message{}, err
+	}
+
+	return sentMsg, nil
 }
