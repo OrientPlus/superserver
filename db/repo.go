@@ -1,9 +1,10 @@
 package db
 
 import (
+	"errors"
 	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	psql "superserver/pkg/postgres"
 	"github.com/lib/pq"
-	_ "github.com/lib/pq"
 )
 
 type Repo interface {
@@ -25,15 +26,31 @@ type Repo interface {
 }
 
 type repoImpl struct {
-	postgres pq.Driver
+	postgres *psql.Postgres
 }
 
 func NewRepo() Repo {
-	return &repoImpl{}
+	ri := &repoImpl{}
+	ps, err := psql.NewPostgres()
+	if err != nil {
+		return nil
+	}
+	ri.postgres = ps
+
+	return ri
 }
 
 func (r *repoImpl) AddUser(chat *tgapi.Chat, user *tgapi.User) error {
+	if chat == nil {
+		return errors.New("value 'chat' is nil")
+	}
+	if user == nil {
+		return errors.New("value 'user' is nil")
+	}
 
+	r.postgres.
+
+	return nil
 }
 
 func (r *repoImpl) CheckUserAndGroup(chat *tgapi.Chat, user *tgapi.User) bool {
