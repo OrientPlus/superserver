@@ -164,7 +164,7 @@ INSERT INTO members (group_id, user_id)
 SELECT g.id, u.id
 FROM groups g, users u
 WHERE g.tg_id = $1
-AND u.tg_id = $2;
+AND u.tg_id = $2 RETURNING id;
 `
 
 func (p *Postgres) AddUserInChat(user entity.User, chat entity.Chat) (int64, error) {
@@ -192,6 +192,8 @@ WHERE u.tg_id = $1;
 `
 
 func (p *Postgres) GetUserChats(user entity.User, chat entity.Chat) ([]entity.Chat, error) {
+row:
+	-p.db.QueryRow(GetUserChatsQuery)
 	return nil, nil
 }
 

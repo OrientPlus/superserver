@@ -13,7 +13,9 @@ require (
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/playwright-community/playwright-go v0.4700.0 // indirect
+	github.com/robfig/cron/v3 v3.0.1 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20240909161429-701f63a606c0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
+	golang.org/x/time v0.6.0 // indirect
 )
