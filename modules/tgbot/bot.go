@@ -136,7 +136,7 @@ func (bot *tgBot) handleCommand(update tgapi.Update) {
 		if bot.reelRegex.MatchString(text) {
 			bot.handleCommandInstReel(update)
 		}
-		if message.Text == "/start" && (params.LastPressButtonLuckyPes.Allow() || params.LastPressButtonLuckyCat.Allow()) {
+		if message.Text == "/start" && (params.LuckyPesLimiter.Allow() || params.LuckyCatLimiter.Allow()) {
 			bot.handleCommandLuckyPet(update)
 		}
 		if message.Text == "/help" {
@@ -170,14 +170,14 @@ func (bot *tgBot) getRandomUser(parameters entity.Chat) entity.User {
 	rand.Seed(time.Now().UnixNano())
 	usersCount := len(parameters.Members)
 	if usersCount < 2 {
-		return entity.User{ID: -1}
+		return entity.User{TgID: -1}
 	}
 
 	var luckyUser entity.User
 	for range 10 {
 		luckyUser = parameters.Members[rand.Intn(usersCount)]
 		badUser := false
-		if luckyUser.ID == parameters.LastCat.ID || luckyUser.ID == parameters.LastPes.ID {
+		if luckyUser.TgID == parameters.LastCat.TgID || luckyUser.TgID == parameters.LastPes.TgID {
 			badUser = true
 		}
 		if badUser == false {
@@ -187,7 +187,7 @@ func (bot *tgBot) getRandomUser(parameters entity.Chat) entity.User {
 
 	return luckyUser
 	/*return tgapi.User{
-		ID:                      luckyUser.ID,
+		TgID:                      luckyUser.TgID,
 		IsBot:                   luckyUser.IsBot,
 		FirstName:               luckyUser.FirstName,
 		LastName:                luckyUser.LastName,
@@ -267,19 +267,19 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgapi.Update) {
 
 	if update.CallbackQuery.Data == "choose_kitten" {
 		parameters := bot.repo.GetChatParameters(message.Chat.Title)
-		if !parameters.LastPressButtonLuckyCat.Allow() {
+		if !parameters.LuckyCatLimiter.Allow() {
 			bot.logger.Warn(fmt.Sprintf("юзер %s из чата %s дудосит бота", message.Chat.UserName, message.Chat.Title))
 			return
 		}
 		bot.logger.Info(fmt.Sprintf("нажата кнопка 'choose_kitten'; User tag: %s", message.Chat.UserName))
 
 		randomUser := bot.getRandomUser(parameters)
-		if randomUser.ID == -1 {
+		if randomUser.TgID == -1 {
 			bot.logger.Warn(fmt.Sprintf("в чате %s обнаружено слишком мало участников для выполнения команды", update.CallbackQuery.Message.Chat.Title))
 			msg := tgapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Пока что я знаю мало людей в чате, чтобы выбрать котеночка( Попробуй позже")
 			bot.botApi.Send(msg)
 			return
-		} else if randomUser.ID == -2 {
+		} else if randomUser.TgID == -2 {
 			bot.logger.Warn(fmt.Sprintf("в чате %s не удалось выбить рандомного юзера", update.CallbackQuery.Message.Chat.Title))
 			msg := tgapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Вас слишком мало чате, не получилось выбрать котика( Попробуй позже")
 			bot.botApi.Send(msg)
@@ -299,19 +299,19 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgapi.Update) {
 		parameters.LastCat = randomUser
 	} else if update.CallbackQuery.Data == "choose_pes" {
 		parameters := bot.repo.GetChatParameters(message.Chat.Title)
-		if !parameters.LastPressButtonLuckyPes.Allow() {
+		if !parameters.LuckyPesLimiter.Allow() {
 			bot.logger.Warn(fmt.Sprintf("юзер %s из чата %s дудосит бота", message.Chat.UserName, message.Chat.Title))
 			return
 		}
 		bot.logger.Info(fmt.Sprintf("нажата кнопка 'choose_pes'; User tag: %s", message.Chat.UserName))
 
 		randomUser := bot.getRandomUser(parameters)
-		if randomUser.ID == -1 {
+		if randomUser.TgID == -1 {
 			bot.logger.Warn(fmt.Sprintf("в чате %s обнаружено слишком мало участников для выполнения команды", message.Chat.Title))
 			msg := tgapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Пока что я знаю мало людей в чате, чтобы выбрать псину( Попробуй позже")
 			bot.botApi.Send(msg)
 			return
-		} else if randomUser.ID == -2 {
+		} else if randomUser.TgID == -2 {
 			bot.logger.Warn(fmt.Sprintf("в чате %s не удалось выбить рандомного юзера", update.CallbackQuery.Message.Chat.Title))
 			msg := tgapi.NewMessage(update.CallbackQuery.Message.Chat.ID, "Вас слишком мало чате, не получилось выбрать псину( Попробуй позже")
 			bot.botApi.Send(msg)
@@ -415,7 +415,7 @@ func (bot *tgBot) handleCommandHelp(update tgapi.Update) {
 	}
 	_, err := bot.botApi.Send(msg)
 	if err != nil {
-		bot.logger.Error(fmt.Sprintf("не удалось отправить сообщение %s; Chat ID: %s; From: %s", err.Error(), message.Chat.ID, message.Chat.UserName))
+		bot.logger.Error(fmt.Sprintf("не удалось отправить сообщение %s; Chat TgID: %s; From: %s", err.Error(), message.Chat.ID, message.Chat.UserName))
 	}
 
 }
@@ -463,7 +463,7 @@ func (bot *tgBot) HandleEvent(update tgapi.Update) {
 
 	event.ID = int(eventID)
 	chat.Events = append(chat.Events, event)
-	bot.sendMessage(message, fmt.Sprintf("Отлично, я создал ивент %s. Его ID: %d", event.Title, event.ID))
+	bot.sendMessage(message, fmt.Sprintf("Отлично, я создал ивент %s. Его TgID: %d", event.Title, event.ID))
 	return
 }
 
@@ -483,7 +483,7 @@ func (bot *tgBot) HandleEventList(update tgapi.Update) {
 
 	answer := "Ивенты чата:"
 	for _, event := range parameters.Events {
-		answer = answer + "\nID: " + strconv.Itoa(event.ID) + "\nИмя ивента: " + event.Title + "\n"
+		answer = answer + "\nTgID: " + strconv.Itoa(event.ID) + "\nИмя ивента: " + event.Title + "\n"
 	}
 	bot.sendMessage(message, answer)
 	return

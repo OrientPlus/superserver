@@ -7,7 +7,7 @@ import (
 )
 
 type User struct {
-	ID                      int64
+	TgID                    int64
 	IsBot                   bool
 	FirstName               string
 	LastName                string
@@ -18,26 +18,27 @@ type User struct {
 	SupportsInlineQueries   bool
 }
 
+type Chat struct {
+	TgID            int64
+	Title           string
+	Type            string
+	LastCat         User
+	LastPes         User
+	LastCatChoice   time.Time
+	LastPesChoice   time.Time
+	OpPerTime       *rate.Limiter
+	LuckyCatLimiter *rate.Limiter
+	LuckyPesLimiter *rate.Limiter
+	Members         []User
+	Events          []ChatEvent
+}
+
 type ChatEvent struct {
-	ID         int
+	CronID     int64
+	TgID       int64
 	Title      string
 	Message    string
 	TimeConfig string
-}
-
-type Chat struct {
-	ID                      int64
-	Title                   string
-	Type                    string
-	LastCat                 User
-	LastPes                 User
-	LastCatChoice           time.Time
-	LastPesChoice           time.Time
-	OpPerTime               *rate.Limiter
-	LastPressButtonLuckyCat *rate.Limiter
-	LastPressButtonLuckyPes *rate.Limiter
-	Members                 []User
-	Events                  []ChatEvent
 }
 
 func GetMessage(upd tgapi.Update) *tgapi.Message {
@@ -54,7 +55,7 @@ func GetMessage(upd tgapi.Update) *tgapi.Message {
 
 func NewUser(user *tgapi.User) User {
 	return User{
-		ID:                      user.ID,
+		TgID:                    user.ID,
 		IsBot:                   user.IsBot,
 		FirstName:               user.FirstName,
 		LastName:                user.LastName,
@@ -68,17 +69,17 @@ func NewUser(user *tgapi.User) User {
 
 func NewChat(chat *tgapi.Chat) Chat {
 	return Chat{
-		ID:                      chat.ID,
-		Title:                   chat.Title,
-		Type:                    chat.Type,
-		LastCat:                 User{},
-		LastPes:                 User{},
-		LastCatChoice:           time.Time{},
-		LastPesChoice:           time.Time{},
-		OpPerTime:               rate.NewLimiter(1/5, 10),
-		LastPressButtonLuckyCat: rate.NewLimiter(1/30, 0),
-		LastPressButtonLuckyPes: rate.NewLimiter(1/30, 0),
-		Members:                 nil,
-		Events:                  nil,
+		TgID:            chat.ID,
+		Title:           chat.Title,
+		Type:            chat.Type,
+		LastCat:         User{},
+		LastPes:         User{},
+		LastCatChoice:   time.Time{},
+		LastPesChoice:   time.Time{},
+		OpPerTime:       rate.NewLimiter(1/5, 10),
+		LuckyCatLimiter: rate.NewLimiter(1/30, 0),
+		LuckyPesLimiter: rate.NewLimiter(1/30, 0),
+		Members:         nil,
+		Events:          nil,
 	}
 }

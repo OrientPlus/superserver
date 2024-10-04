@@ -2,10 +2,8 @@ package db
 
 import (
 	"errors"
-	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"superserver/entity"
 	psql "superserver/pkg/postgres"
-	"github.com/lib/pq"
 )
 
 type Repo interface {
@@ -49,7 +47,25 @@ func (r *repoImpl) AddUser(chat *entity.Chat, user *entity.User) error {
 		return errors.New("value 'user' is nil")
 	}
 
-	r.postgres.
+	tx, err := r.postgres.BeginTx()
+	if err != nil {
+		return err
+	}
+
+	// Узнаем нет ли уже такой группы
+	// TODO корректная обработка события когда записи нет в БД, но возвращается ошибка
+	group, err := r.postgres.GetChat(tx, chat.TgID)
+	if err != nil {
+		r.postgres.RollbackTx(tx)
+		return err
+	}
+
+	// Если нет - добавляем группу
+
+	// Если есть обновляем данные группы
+
+	// Добавляем юзера
+	r.postgres.AddUser(tx, *user)
 
 	return nil
 }

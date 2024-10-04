@@ -186,11 +186,11 @@ func NewReelsDownloader() (ReelModule, error) {
 }
 
 func extractReelID(url string) (string, error) {
-	// Регулярное выражение для извлечения ID
+	// Регулярное выражение для извлечения TgID
 	re := regexp.MustCompile(`https:\/\/www\.instagram\.com\/(reel|reels)\/([A-Za-z0-9_-]+)\/?`)
 	match := re.FindStringSubmatch(url)
 	if len(match) < 3 {
-		return "", fmt.Errorf("не удалось найти ID в ссылке")
+		return "", fmt.Errorf("не удалось найти TgID в ссылке")
 	}
 	return match[2], nil
 }
