@@ -29,10 +29,8 @@ CREATE TABLE groups (
 CREATE TABLE limiters (
                           id 			SERIAL PRIMARY KEY,
                           burst 		INT NOT NULL,
-                          limit 		FLOAT8 NOT NULL,
-                          tokens 		FLOAT8 NOT NULL,
-                          last			TIMESTAMPTZ NOT NULL,
-                          last_event	TIMESTAMPTZ NOT NULL
+                          lim    		FLOAT8 NOT NULL,
+                          tokens 		FLOAT8 NOT NULL
 );
 
 CREATE TABLE members (
@@ -57,7 +55,13 @@ CREATE TABLE events (
                         time_config VARCHAR(255) NOT NULL
 );
 
+CREATE TABLE admins (
+                        id      SERIAL PRIMARY KEY,
+                        tg_id   BIGINT NOT NULL UNIQUE
+);
+
 -- +goose Down
+DROP TABLE admins;
 DROP TABLE events;
 DROP TABLE chat_events;
 DROP TABLE members;

@@ -2,19 +2,20 @@ package tgbot
 
 import (
 	"fmt"
-	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/robfig/cron/v3"
 	"math/rand"
 	"os"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
+
+	tgapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/robfig/cron/v3"
 	"superserver/db"
 	"superserver/entity"
 	"superserver/loggers"
 	vl "superserver/modules/tgbot/inst"
-	"time"
 )
 
 const token string = "6739454793:AAFTDRXnqDTNGvN7IWQBom6a5YkHeO6YpzQ"
@@ -127,8 +128,8 @@ func (bot *tgBot) Run() {
 
 func (bot *tgBot) handleCommand(update tgapi.Update) {
 	message := entity.GetMessage(update)
-	params := bot.repo.GetChatParameters(message.Chat.Title)
-	if !params.OpPerTime.Allow() {
+	chat, _ := bot.repo.GetChatParameters(message.Chat.Title)
+	if !chat.OpPerTime.Allow() {
 		return
 	}
 	if message != nil {
@@ -136,7 +137,7 @@ func (bot *tgBot) handleCommand(update tgapi.Update) {
 		if bot.reelRegex.MatchString(text) {
 			bot.handleCommandInstReel(update)
 		}
-		if message.Text == "/start" && (params.LuckyPesLimiter.Allow() || params.LuckyCatLimiter.Allow()) {
+		if message.Text == "/start" && (chat.LuckyPesLimiter.Allow() || chat.LuckyCatLimiter.Allow()) {
 			bot.handleCommandLuckyPet(update)
 		}
 		if message.Text == "/help" {
@@ -156,6 +157,9 @@ func (bot *tgBot) handleCommand(update tgapi.Update) {
 		}
 		if message.Text == "/random" {
 			bot.handleCommandRandom(update)
+		}
+		if message.Text == "/admin_message" {
+			bot.handleCommandNewVersion(update)
 		}
 
 		return
@@ -205,19 +209,18 @@ func (bot *tgBot) checkUser(update tgapi.Update) {
 	if message.From.UserName == "ninjaConnectionBot" {
 		return
 	}
-	if message.Chat.Type == "private" || message.Chat.Type == "channel" {
-		return
-	}
-
-	chatName := message.Chat.Title
-	if chatName == "" {
-		bot.logger.Warn("не удалось определить имя группы")
-		return
-	}
 
 	chat := entity.NewChat(message.Chat)
 	user := entity.NewUser(message.From)
-	bot.repo.CheckUserAndGroup(&chat, &user)
+	_, err := bot.repo.AddUser(&user)
+	if err != nil {
+		bot.logger.Error(fmt.Sprintf("ошибка добавления юзера %s в БД %s", user.UserName, err.Error()))
+	}
+	_, err = bot.repo.AddChat(&chat)
+	if err != nil {
+		bot.logger.Error(fmt.Sprintf("ошибка добавления чата %s в БД %s", chat.Title, err.Error()))
+	}
+	return
 }
 
 func isNextDay(prev time.Time) bool {
@@ -266,7 +269,7 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgapi.Update) {
 	}
 
 	if update.CallbackQuery.Data == "choose_kitten" {
-		parameters := bot.repo.GetChatParameters(message.Chat.Title)
+		parameters, _ := bot.repo.GetChatParameters(message.Chat.Title)
 		if !parameters.LuckyCatLimiter.Allow() {
 			bot.logger.Warn(fmt.Sprintf("юзер %s из чата %s дудосит бота", message.Chat.UserName, message.Chat.Title))
 			return
@@ -298,7 +301,7 @@ func (bot *tgBot) handleCommandButtonLuckyPet(update tgapi.Update) {
 		parameters.LastCatChoice = time.Now()
 		parameters.LastCat = randomUser
 	} else if update.CallbackQuery.Data == "choose_pes" {
-		parameters := bot.repo.GetChatParameters(message.Chat.Title)
+		parameters, _ := bot.repo.GetChatParameters(message.Chat.Title)
 		if !parameters.LuckyPesLimiter.Allow() {
 			bot.logger.Warn(fmt.Sprintf("юзер %s из чата %s дудосит бота", message.Chat.UserName, message.Chat.Title))
 			return
@@ -407,13 +410,13 @@ func (bot *tgBot) handleCommandHelp(update tgapi.Update) {
 		message = update.Message
 	}
 
-	var msg tgapi.MessageConfig
+	var msg string
 	if message.Chat.Type == "private" {
-		msg = tgapi.NewMessage(update.Message.Chat.ID, helpPrivateChatOutput)
+		msg = helpPrivateChatOutput
 	} else {
-		msg = tgapi.NewMessage(update.Message.Chat.ID, helpGroupChatOutput)
+		msg = helpGroupChatOutput
 	}
-	_, err := bot.botApi.Send(msg)
+	_, err := bot.sendMessage(message, msg)
 	if err != nil {
 		bot.logger.Error(fmt.Sprintf("не удалось отправить сообщение %s; Chat TgID: %s; From: %s", err.Error(), message.Chat.ID, message.Chat.UserName))
 	}
@@ -421,6 +424,7 @@ func (bot *tgBot) handleCommandHelp(update tgapi.Update) {
 }
 
 func (bot *tgBot) handleCommandRandom(update tgapi.Update) {
+	// TODO implement this method
 	/*var message *tgapi.Message
 	if update.Message == nil {
 		message = update.CallbackQuery.Message
@@ -428,6 +432,10 @@ func (bot *tgBot) handleCommandRandom(update tgapi.Update) {
 		message = update.Message
 	}*/
 
+}
+
+func (bot *tgBot) handleCommandNewVersion(update tgapi.Update) {
+	// TODO implement this method
 }
 
 func (bot *tgBot) HandleEvent(update tgapi.Update) {
@@ -438,7 +446,7 @@ func (bot *tgBot) HandleEvent(update tgapi.Update) {
 		message = update.Message
 	}
 
-	chat := bot.repo.GetChatParameters(message.Chat.Title)
+	chat, chatId := bot.repo.GetChatParameters(message.Chat.Title)
 
 	match := bot.eventRegex.FindStringSubmatch(message.Text)
 	if match == nil || len(match) < 4 {
@@ -446,13 +454,14 @@ func (bot *tgBot) HandleEvent(update tgapi.Update) {
 		return
 	}
 	event := entity.ChatEvent{
-		ID:         0,
+		CronID:     0,
+		TgID:       chat.TgID,
 		Title:      match[1],
 		Message:    match[2],
 		TimeConfig: match[3],
 	}
 
-	eventID, err := bot.cron.AddFunc(event.TimeConfig, func() {
+	cronID, err := bot.cron.AddFunc(event.TimeConfig, func() {
 		// пример: "30 12 * * 1-5" каждый будний день в 12:30
 		bot.sendMessage(message, event.Message)
 	})
@@ -460,10 +469,23 @@ func (bot *tgBot) HandleEvent(update tgapi.Update) {
 		bot.sendMessage(message, "Мне не удалось создать ивент для тебя( У меня лапки((")
 		return
 	}
+	bot.sendMessage(message, fmt.Sprintf("Отлично, я создал ивент %s. Его TgID: %d", event.Title, event.CronID))
 
-	event.ID = int(eventID)
+	event.CronID = int64(cronID)
 	chat.Events = append(chat.Events, event)
-	bot.sendMessage(message, fmt.Sprintf("Отлично, я создал ивент %s. Его TgID: %d", event.Title, event.ID))
+
+	eventId, err := bot.repo.AddEvent(event)
+	if err != nil {
+		bot.logger.Error(fmt.Sprintf("ошибка добавления ивента в бд: %s", err))
+		return
+	}
+
+	eventId, err = bot.repo.AddEventInChat(eventId, chatId)
+	if err != nil {
+		bot.logger.Error(fmt.Sprintf("ошибка добавления ивента в чат в бд: %s", err))
+		return
+	}
+
 	return
 }
 
@@ -475,15 +497,15 @@ func (bot *tgBot) HandleEventList(update tgapi.Update) {
 		message = update.Message
 	}
 
-	parameters := bot.repo.GetChatParameters(message.Chat.Title)
-	if len(parameters.Events) == 0 {
+	chat, _ := bot.repo.GetChatParameters(message.Chat.Title)
+	if len(chat.Events) == 0 {
 		bot.sendMessage(message, "Похоже в чатике нет активных ивентов")
 		return
 	}
 
 	answer := "Ивенты чата:"
-	for _, event := range parameters.Events {
-		answer = answer + "\nTgID: " + strconv.Itoa(event.ID) + "\nИмя ивента: " + event.Title + "\n"
+	for _, event := range chat.Events {
+		answer = answer + "\nID: " + strconv.Itoa(int(event.CronID)) + "\nИмя ивента: " + event.Title + "\n"
 	}
 	bot.sendMessage(message, answer)
 	return
@@ -497,7 +519,7 @@ func (bot *tgBot) HandleDeleteEvent(update tgapi.Update) {
 		message = update.Message
 	}
 
-	var eventIdentifier string
+	var eventCronIdentifier string
 	re := regexp.MustCompile(`^/del_event\s+(.*)$`)
 	match := re.FindStringSubmatch(message.Text)
 	if match == nil || len(match) < 2 {
@@ -505,31 +527,36 @@ func (bot *tgBot) HandleDeleteEvent(update tgapi.Update) {
 		return
 	}
 
-	eventIdentifier = match[1]
-	var parameters entity.Chat
-	parameters = bot.repo.GetChatParameters(message.Chat.Title)
-	eventID, err := strconv.Atoi(eventIdentifier)
+	eventCronIdentifier = match[1]
+	chat, _ := bot.repo.GetChatParameters(message.Chat.Title)
+	eventID, err := strconv.Atoi(eventCronIdentifier)
 	if err != nil {
-		eventID = -1
-		for i, event := range parameters.Events {
-			if event.Title == eventIdentifier {
-				eventID = event.ID
-				parameters.Events = append(parameters.Events[:i], parameters.Events[i+1:]...)
-				break
-			}
-		}
+		bot.sendMessage(message, "Ты передал невалидный id, чувырло")
+		return
+	}
 
-		if eventID == -1 {
-			bot.sendMessage(message, "Мне не удалось найти такой ивент(( У меня лапки(((")
-		}
-	} else {
-		index := sort.Search(len(parameters.Events), func(i int) bool {
-			return parameters.Events[i].ID == eventID
-		})
-		parameters.Events = append(parameters.Events[:index], parameters.Events[index+1:]...)
+	delIndex := sort.Search(len(chat.Events), func(i int) bool {
+		return int(chat.Events[i].CronID) == eventID
+	})
+
+	if delIndex >= len(chat.Events) {
+		bot.logger.Warn(fmt.Sprintf("Не найден cron ID <%d> в чате <%s>", eventCronIdentifier, chat.Title))
+		bot.sendMessage(message, "Распознал переданный id, но не нашел его в вашем чатике. Сделаем вид, что все удалено)))")
+		time.Sleep(time.Second * 3)
+		bot.sendMessage(message, "Если не удалилось, то мои полномочия все, пишите бате @OrientPlus")
+		return
 	}
 
 	bot.cron.Remove(cron.EntryID(eventID))
+
+	err = bot.repo.DeleteEventFromChatByExternalId(int64(eventID), chat.TgID)
+
+	err = bot.repo.DeleteEvent(chat.Events[delIndex])
+	if err != nil {
+		bot.logger.Error(fmt.Sprintf("ошибка обновления чата %s:%d в БД: %s", chat.Title, chat.TgID, err.Error()))
+	}
+
+	chat.Events = append(chat.Events[:delIndex], chat.Events[delIndex+1:]...)
 }
 
 func (bot *tgBot) HandleDelAllEvents(update tgapi.Update) {
@@ -540,10 +567,23 @@ func (bot *tgBot) HandleDelAllEvents(update tgapi.Update) {
 		message = update.Message
 	}
 
-	parameters := bot.repo.GetChatParameters(message.Chat.Title)
-	for _, event := range parameters.Events {
-		bot.cron.Remove(cron.EntryID(event.ID))
+	chat, _ := bot.repo.GetChatParameters(message.Chat.Title)
+	for _, event := range chat.Events {
+		bot.cron.Remove(cron.EntryID(event.CronID))
+
+		err := bot.repo.DeleteEventFromChatByExternalId(event.CronID, event.TgID)
+		if err != nil {
+			bot.logger.Error(fmt.Sprintf("ошибка удаления ивента из чата в бд: %s", err))
+			continue
+		}
+
+		err = bot.repo.DeleteEvent(event)
+		if err != nil {
+			bot.logger.Error(fmt.Sprintf("ошибка удаления ивента из БД: %s", err))
+			continue
+		}
 	}
+	chat.Events = nil
 
 	bot.sendMessage(message, "Супер, я удалил все ивенты чата!")
 	return

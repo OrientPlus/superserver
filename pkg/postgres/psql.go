@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/lib/pq"
-	"superserver/entity"
 	"time"
+
+	_ "github.com/lib/pq"
+	"golang.org/x/time/rate"
+	"superserver/entity"
 )
 
 type Postgres struct {
@@ -83,17 +85,30 @@ func (p *Postgres) GetUserByTgID(tx *sql.Tx, tgID int64) (entity.User, error) {
 	return user, err
 }
 
+const GetUserIdByTgIDQuery = `
+SELECT id FROM users WHERE tg_id = $1;
+`
+
+func (p *Postgres) GetUserIdByTgID(tx *sql.Tx, tgID int64) (int64, error) {
+	var id int64
+	err := tx.QueryRow(GetUserIdByTgIDQuery, tgID).Scan(&id)
+
+	return id, err
+}
+
 const UpdateUserQuery = `
 UPDATE users
 SET is_bot = $1, first_name = $2, last_name = $3, user_name = $4, language_code = $5, can_join_groups = $6, 
     can_read_all_group_messages = $7, supports_inline_queries = $8
-WHERE tg_id = $9;
+WHERE tg_id = $9 RETURNING id;
 `
 
-func (p *Postgres) UpdateUser(tx *sql.Tx, user entity.User) error {
-	_, err := tx.Exec(UpdateUserQuery, user.IsBot, user.FirstName, user.LastName, user.UserName, user.LanguageCode,
+func (p *Postgres) UpdateUser(tx *sql.Tx, user entity.User) (int64, error) {
+	row := tx.QueryRow(UpdateUserQuery, user.IsBot, user.FirstName, user.LastName, user.UserName, user.LanguageCode,
 		user.CanJoinGroups, user.CanReadAllGroupMessages, user.SupportsInlineQueries, user.TgID)
-	return err
+	var id int64
+	err := row.Scan(id)
+	return id, err
 }
 
 const DeleteUserQuery = `
@@ -179,29 +194,36 @@ func (p *Postgres) DeleteChat(tx *sql.Tx, chat entity.Chat) error {
 // Limiter CRUD
 
 type LimiterDTO struct {
-	ID        int64
-	Limit     float64
-	Burst     int
-	Tokens    float64
-	Last      time.Time
-	LastEvent time.Time
+	ID     int64
+	Limit  float64
+	Burst  int
+	Tokens float64
+}
+
+func GetLimiterDTO(limiter *rate.Limiter) LimiterDTO {
+	return LimiterDTO{
+		ID:     -1,
+		Limit:  float64(limiter.Limit()),
+		Burst:  limiter.Burst(),
+		Tokens: limiter.Tokens(),
+	}
 }
 
 const AddLimiterQuery = `
-INSERT INTO limiters (burst, limit, tokens, last, last_event)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO limiters (burst, lim, tokens)
+VALUES ($1, $2, $3)
 RETURNING id;
 `
 
 func (p *Postgres) AddLimiter(tx *sql.Tx, limiter LimiterDTO) (int64, error) {
 	var limiterID int64
-	err := tx.QueryRow(AddLimiterQuery, limiter.Burst, limiter.Limit, limiter.Tokens, limiter.Last, limiter.LastEvent).Scan(&limiterID)
+	err := tx.QueryRow(AddLimiterQuery, limiter.Burst, limiter.Limit, limiter.Tokens).Scan(&limiterID)
 
 	return limiterID, err
 }
 
 const GetLimiterByIDQuery = `
-SELECT burst, limit, tokens, last, last_event
+SELECT burst, lim, tokens
 FROM limiters
 WHERE id = $1;
 `
@@ -209,7 +231,7 @@ WHERE id = $1;
 func (p *Postgres) GetLimiterByID(tx *sql.Tx, id int64) (LimiterDTO, error) {
 	var limiter LimiterDTO
 	err := tx.QueryRow(GetLimiterByIDQuery, id).Scan(
-		&limiter.Burst, &limiter.Limit, &limiter.Tokens, &limiter.Last, &limiter.LastEvent,
+		&limiter.Burst, &limiter.Limit, &limiter.Tokens,
 	)
 
 	return limiter, err
@@ -217,12 +239,12 @@ func (p *Postgres) GetLimiterByID(tx *sql.Tx, id int64) (LimiterDTO, error) {
 
 const UpdateLimiterQuery = `
 UPDATE limiters
-SET burst = $1, limit = $2, tokens = $3, last = $4, last_event = $5
-WHERE id = $6;
+SET burst = $1, lim = $2, tokens = $3
+WHERE id = $4;
 `
 
 func (p *Postgres) UpdateLimiter(tx *sql.Tx, limiter LimiterDTO) error {
-	_, err := tx.Exec(UpdateLimiterQuery, limiter.Burst, limiter.Limit, limiter.Tokens, limiter.Last, limiter.LastEvent, limiter.ID)
+	_, err := tx.Exec(UpdateLimiterQuery, limiter.Burst, limiter.Limit, limiter.Tokens, limiter.ID)
 
 	return err
 }
