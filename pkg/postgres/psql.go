@@ -7,7 +7,6 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
-	"golang.org/x/time/rate"
 	"superserver/entity"
 )
 
@@ -134,8 +133,6 @@ type ChatDTO struct {
 	OpPerTimeLimiterID int64
 	LuckyCatLimiterID  int64
 	LuckyPesLimiterID  int64
-	MembersID          []int64
-	EventsID           []int64
 }
 
 const AddGroupQuery = `
@@ -174,14 +171,16 @@ const UpdateGroupQuery = `
 UPDATE groups
 SET title = $1, type = $2, last_cat = $3, last_cat_choise = $4, last_pes = $5, last_pes_choise = $6, 
     op_per_time_limeter_id = $7, lucky_cat_limiter_id = $8, lucky_pes_limiter_id = $9
-WHERE tg_id = $10;
+WHERE tg_id = $10
+RETURNING id;
 `
 
-func (p *Postgres) UpdateChat(tx *sql.Tx, chat ChatDTO) error {
-	_, err := tx.Exec(UpdateGroupQuery, chat.Title, chat.Type, chat.LastCatID, chat.LastCatChoice, chat.LastPesID,
-		chat.LastPesChoice, chat.OpPerTimeLimiterID, chat.LuckyCatLimiterID, chat.LuckyPesLimiterID, chat.TgID)
+func (p *Postgres) UpdateChat(tx *sql.Tx, chat ChatDTO) (int64, error) {
+	var id int64
+	err := tx.QueryRow(UpdateGroupQuery, chat.Title, chat.Type, chat.LastCatID, chat.LastCatChoice, chat.LastPesID,
+		chat.LastPesChoice, chat.OpPerTimeLimiterID, chat.LuckyCatLimiterID, chat.LuckyPesLimiterID, chat.TgID).Scan(&id)
 
-	return err
+	return id, err
 }
 
 const DeleteChatQuery = `DELETE FROM groups WHERE tg_id = $1;`
@@ -198,15 +197,6 @@ type LimiterDTO struct {
 	Limit  float64
 	Burst  int
 	Tokens float64
-}
-
-func GetLimiterDTO(limiter *rate.Limiter) LimiterDTO {
-	return LimiterDTO{
-		ID:     -1,
-		Limit:  float64(limiter.Limit()),
-		Burst:  limiter.Burst(),
-		Tokens: limiter.Tokens(),
-	}
 }
 
 const AddLimiterQuery = `
@@ -320,4 +310,115 @@ func (p *Postgres) DeleteEvent(tx *sql.Tx, id int64) error {
 	_, err := tx.Exec(DeleteEventQuery, id)
 
 	return err
+}
+
+// ChatEvents CRUD
+
+const AddEventInChatQuery = `
+INSERT INTO chat_events (chat_id, event_id)
+VALUES ($1, $2)
+RETURNING id;
+`
+
+func (p *Postgres) AddEventInChat(tx *sql.Tx, eventId, chatId int64) (int64, error) {
+	var id int64
+	err := tx.QueryRow(AddEventInChatQuery, chatId, eventId).Scan(&id)
+	return id, err
+}
+
+const GetEventInChatIdQuery = `
+SELECT event_id FROM chat_events WHERE chat_id = $1;
+`
+
+func (p *Postgres) GetEventInChatId(tx *sql.Tx, chatId int64) (int64, error) {
+	var id int64
+	err := tx.QueryRow(GetEventInChatIdQuery, chatId).Scan(&id)
+	return id, err
+}
+
+const DeleteEventInChatQuery = `
+DELETE FROM chat_events WHERE chat_id = $1;
+`
+
+func (p *Postgres) DeleteEventInChat(tx *sql.Tx, chatId int64) error {
+	_, err := tx.Exec(DeleteEventInChatQuery, chatId)
+	return err
+}
+
+// Members CRUD
+
+type MembersDTO struct {
+	id       int64
+	group_id int64
+	user_id  int64
+}
+
+const AddMembersQuery = `
+INSERT INTO members (user_id, group_id) VALUES ($1, $2);
+`
+
+func (p *Postgres) AddMembers(tx *sql.Tx, user_id int64, group_id int64) error {
+	_, err := tx.Exec(AddMembersQuery, user_id, group_id)
+	return err
+}
+
+const GetMembersQuery = `
+SELECT id, group_id, user_id FROM members;
+`
+
+func (p *Postgres) GetMembersByUserId(tx *sql.Tx, user_id int64) (MembersDTO, error) {
+	var members MembersDTO
+	err := tx.QueryRow(GetMembersQuery, user_id).Scan(members.id, members.group_id, members.user_id)
+	return members, err
+}
+
+const UpdateMembersQuery = `
+UPDATE members SET group_id = $1, user_id = $2 WHERE id = $3 RETURNING id;
+`
+
+func (p *Postgres) UpdateMembers(tx *sql.Tx, id int64, user_id int64, group_id int64) error {
+	_, err := tx.Exec(UpdateMembersQuery, group_id, user_id, id)
+	return err
+}
+
+const DeleteMembersQuery = `
+DELETE FROM members WHERE id = $1;
+`
+
+func (p *Postgres) DeleteMembers(tx *sql.Tx, id int64) error {
+	_, err := tx.Exec(DeleteMembersQuery, id)
+	return err
+}
+
+const DeleteMembersByUserIdQuery = `
+DELETE FROM members WHERE user_id = $1;
+`
+
+func (p *Postgres) DeleteMembersByUserId(tx *sql.Tx, user_id int64) error {
+	_, err := tx.Exec(DeleteMembersByUserIdQuery, user_id)
+	return err
+}
+
+const GetChatmembersQuery = `
+SELECT id, group_id, user_id FROM members WHERE group_id = $1;
+`
+
+func (p *Postgres) GetChatmembersByUserId(tx *sql.Tx, user_id int64) ([]MembersDTO, error) {
+	var members []MembersDTO
+	rows, err := tx.Query(GetChatmembersQuery, user_id)
+	if err != nil {
+		return []MembersDTO{}, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var member MembersDTO
+		err = rows.Scan(&member.id, &member.group_id, &member.user_id)
+		if err != nil {
+			return []MembersDTO{}, err
+		}
+		members = append(members, member)
+	}
+
+	return members, err
 }

@@ -369,7 +369,7 @@ func (bot *tgBot) handleCommandInstReel(update tgapi.Update) {
 	}
 
 	// Скачиваем видео
-	videoPath, err := bot.instModule.DownloadReel(link)
+	videoPath, err := bot.instModule.DownloadReelFastdl(link)
 	bot.logger.Info(fmt.Sprintf("скачано видео: %s", videoPath))
 	if err != nil {
 		bot.sendMessage(message, "Я не смог скачать видосик((( У меня лапки...")
