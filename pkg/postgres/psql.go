@@ -123,6 +123,7 @@ func (p *Postgres) DeleteUser(tx *sql.Tx, tgID int64) error {
 // Chat CRUD
 
 type ChatDTO struct {
+	Id                 int64
 	TgID               int64
 	Title              string
 	Type               string
@@ -151,7 +152,7 @@ func (p *Postgres) AddChat(tx *sql.Tx, chat ChatDTO) (int64, error) {
 }
 
 const GetGroupByTgIDQuery = `
-SELECT tg_id, title, type, last_cat, last_cat_choise, last_pes, last_pes_choise, op_per_time_limeter_id, 
+SELECT id, tg_id, title, type, last_cat, last_cat_choise, last_pes, last_pes_choise, op_per_time_limeter_id, 
        lucky_cat_limiter_id, lucky_pes_limiter_id
 FROM groups
 WHERE tg_id = $1;
@@ -160,7 +161,7 @@ WHERE tg_id = $1;
 func (p *Postgres) GetChat(tx *sql.Tx, tg_id int64) (ChatDTO, error) {
 	var chat ChatDTO
 	err := tx.QueryRow(GetGroupByTgIDQuery, tg_id).Scan(
-		&chat.TgID, &chat.Title, &chat.Type, &chat.LastCatID, &chat.LastCatChoice,
+		&chat.Id, &chat.TgID, &chat.Title, &chat.Type, &chat.LastCatID, &chat.LastCatChoice,
 		&chat.LastPesID, &chat.LastPesChoice, &chat.OpPerTimeLimiterID, &chat.LuckyCatLimiterID, &chat.LuckyPesLimiterID,
 	)
 
@@ -312,6 +313,31 @@ func (p *Postgres) DeleteEvent(tx *sql.Tx, id int64) error {
 	return err
 }
 
+const GetChatEventsQuery = `
+SELECT e.id, e.cron_id, e.tg_id, e.title, e.message, e.time_config
+FROM chat_events ce
+JOIN events e ON e.id = ce.event_id
+WHERE ce.chat_id = $1;
+`
+
+func (p *Postgres) GetChatEvents(tx *sql.Tx, chatID int64) ([]EventDTO, error) {
+	var events []EventDTO
+	rows, err := tx.Query(GetChatEventsQuery, chatID)
+	if err != nil {
+		return events, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var event EventDTO
+		err := rows.Scan(&event.ID, &event.CronID, &event.TgID, &event.Title, &event.Message, &event.TimeConfig)
+		if err != nil {
+			return events, err
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
 // ChatEvents CRUD
 
 const AddEventInChatQuery = `
@@ -400,22 +426,27 @@ func (p *Postgres) DeleteMembersByUserId(tx *sql.Tx, user_id int64) error {
 }
 
 const GetChatmembersQuery = `
-SELECT id, group_id, user_id FROM members WHERE group_id = $1;
+SELECT u.tg_id, u.is_bot, u.first_name, u.last_name, u.user_name, u.language_code, u.can_join_groups,
+       u.can_read_all_group_messages, u.supports_inline_queries
+FROM members m 
+JOIN users u ON u.id = m.user_id
+WHERE m.group_id = $1;
 `
 
-func (p *Postgres) GetChatmembersByUserId(tx *sql.Tx, user_id int64) ([]MembersDTO, error) {
-	var members []MembersDTO
+func (p *Postgres) GetChatMembersByGroupId(tx *sql.Tx, user_id int64) ([]entity.User, error) {
+	var members []entity.User
 	rows, err := tx.Query(GetChatmembersQuery, user_id)
 	if err != nil {
-		return []MembersDTO{}, err
+		return members, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var member MembersDTO
-		err = rows.Scan(&member.id, &member.group_id, &member.user_id)
+		var member entity.User
+		err = rows.Scan(&member.TgID, &member.IsBot, &member.FirstName, &member.LastName, &member.UserName, &member.LanguageCode,
+			&member.CanJoinGroups, &member.CanReadAllGroupMessages, &member.SupportsInlineQueries)
 		if err != nil {
-			return []MembersDTO{}, err
+			return members, err
 		}
 		members = append(members, member)
 	}

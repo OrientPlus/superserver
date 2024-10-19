@@ -4,188 +4,175 @@ import (
 	"database/sql"
 	"errors"
 
+	"golang.org/x/time/rate"
 	"superserver/entity"
 	psql "superserver/pkg/postgres"
 )
 
 type Repo interface {
+	BeginTx() (*sql.Tx, error)
+	CommitTx(tx *sql.Tx) error
+	RollbackTx(tx *sql.Tx) error
+
 	// Добавляет запись о юзере и группе в БД
-	AddUser(user *entity.User) (int64, error)
+	AddUser(tx *sql.Tx, user *entity.User) (int64, error)
 
-	UpdateUser(user *entity.User) (int64, error)
+	UpdateUser(tx *sql.Tx, user *entity.User) (int64, error)
 
-	GetUserId(user *entity.User) (int64, error)
+	GetUserId(tx *sql.Tx, user *entity.User) (int64, error)
 
-	DeleteUser(user *entity.User) error
+	DeleteUser(tx *sql.Tx, user *entity.User) error
 
 	// Добавляем чат в БД
-	AddChat(chat *entity.Chat) (int64, error)
+	AddChat(tx *sql.Tx, chat *entity.Chat) (int64, error)
 
 	// Обновляет данные о чате в БД
-	UpdateChat(chat *entity.Chat) (int64, error)
+	UpdateChat(tx *sql.Tx, chat *entity.Chat) (int64, error)
 
-	GetChatId(chat *entity.Chat) (int64, error)
+	// Возваращает текущие параметры для указанной группы
+	GetChat(tx *sql.Tx, TgId int64) (entity.Chat, error)
 
-	DeleteChat(chat *entity.Chat) error
+	GetChatId(tx *sql.Tx, chat *entity.Chat) (int64, error)
 
-	AddUserInChat(userId, chatID int64) (int64, error)
+	DeleteChat(tx *sql.Tx, chat *entity.Chat) error
 
-	DeleteUserFromChat(userId, chatId int64) error
+	AddUserInChat(tx *sql.Tx, userId, chatID int64) (int64, error)
 
-	AddEvent(event entity.ChatEvent) (int64, error)
+	DeleteUserFromChat(tx *sql.Tx, userTgId, chatTgId int64) error
 
-	GetEvent(event entity.ChatEvent) (int64, error)
+	AddEvent(tx *sql.Tx, event entity.ChatEvent) (int64, error)
 
-	UpdateEvent(event entity.ChatEvent) (int64, error)
+	GetEvent(tx *sql.Tx, event entity.ChatEvent) (int64, error)
 
-	DeleteEvent(event entity.ChatEvent) error
+	UpdateEvent(tx *sql.Tx, event entity.ChatEvent) (int64, error)
+
+	DeleteEvent(tx *sql.Tx, event entity.ChatEvent) error
 
 	// @eventId - db uniq id
 	// @chatId  - db uniq id
-	AddEventInChat(eventId, chatId int64) (int64, error)
+	AddEventInChat(tx *sql.Tx, eventId, chatId int64) (int64, error)
 
 	// @eventId - db uniq id
 	// @chatId  - db uniq id
-	DeleteEventFromChat(eventId, chatId int64) error
+	DeleteEventFromChat(tx *sql.Tx, eventId, chatId int64) error
 
 	// @cronEventId - cron event uniq id
 	// @chatId  	- tg uniq id
-	DeleteEventFromChatByExternalId(cronEventId, chatId int64) error
+	DeleteEventFromChatByExternalId(tx *sql.Tx, cronEventId, chatId int64) error
 
 	// Получить список групп пользователя
-	GetUserGroups(user *entity.User) ([]entity.Chat, error)
+	GetUserGroups(tx *sql.Tx, user *entity.User) ([]entity.Chat, error)
 
 	// Возвращает список всех юзеров состоящих в указанной группе
-	GetUsersFromChat(chat string) ([]entity.User, error)
+	GetUsersFromChat(tx *sql.Tx, TgId int64) ([]entity.User, error)
 
-	// Возваращает текущие параметры для указанной группы
-	GetChatParameters(chat string) (entity.Chat, int64)
+	GetAllChats(tx *sql.Tx) ([]entity.Chat, error)
+
+	IsAdmin(tx *sql.Tx, userTgId int64) (bool, error)
 }
 
 type repoImpl struct {
 	pg *psql.Postgres
 }
 
-// Добавляет юзера в БД. Если такой юзер уже есть, обновляет данные в БД
-func (r *repoImpl) AddUser(user *entity.User) (int64, error) {
-	if user == nil {
-		return -1, errors.New("value 'user' is nil")
-	}
+func (r *repoImpl) BeginTx() (*sql.Tx, error) {
+	return r.pg.BeginTx()
+}
 
-	tx, err := r.pg.BeginTx()
-	if err != nil {
-		return -1, err
+func (r *repoImpl) CommitTx(tx *sql.Tx) error {
+	return r.pg.CommitTx(tx)
+}
+
+func (r *repoImpl) RollbackTx(tx *sql.Tx) error {
+	return r.pg.RollbackTx(tx)
+}
+
+// Добавляет юзера в БД. Если такой юзер уже есть, обновляет данные в БД
+func (r *repoImpl) AddUser(tx *sql.Tx, user *entity.User) (int64, error) {
+	if user == nil || tx == nil {
+		return -1, errors.New("invalid input parameter")
 	}
 
 	// Проверяем что юзера нет в БД
-	_, err = r.pg.GetUserByTgID(tx, user.TgID)
+	_, err := r.pg.GetUserByTgID(tx, user.TgID)
 	if err != nil && err != sql.ErrNoRows {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
+		return -1, err
 	}
 
 	if err == nil {
-		return r.UpdateUser(user)
+		return r.UpdateUser(tx, user)
 	}
 
 	// Добавляем юзера
 	userId, err := r.pg.AddUser(tx, *user)
 	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
+		return -1, err
 	}
 
-	err = r.pg.CommitTx(tx)
 	return userId, err
 }
 
 // Обновляет данные юзера в БД
-func (r *repoImpl) UpdateUser(user *entity.User) (int64, error) {
-	if user == nil {
-		return -1, errors.New("value 'user' is nil")
+func (r *repoImpl) UpdateUser(tx *sql.Tx, user *entity.User) (int64, error) {
+	if user == nil || tx == nil {
+		return -1, errors.New("invalid input parameter")
 	}
 
-	tx, err := r.pg.BeginTx()
+	_, err := r.pg.GetUserByTgID(tx, user.TgID)
 	if err != nil {
 		return -1, err
-	}
-
-	_, err = r.pg.GetUserByTgID(tx, user.TgID)
-	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
 	}
 
 	id, err := r.pg.UpdateUser(tx, *user)
 	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
+		return -1, err
 	}
 
-	err = r.pg.CommitTx(tx)
 	return id, err
 }
 
 // Возвращает ID юзера из БД
-func (r *repoImpl) GetUserId(user *entity.User) (int64, error) {
-	tx, err := r.pg.BeginTx()
-	if err != nil {
-		return -1, err
+func (r *repoImpl) GetUserId(tx *sql.Tx, user *entity.User) (int64, error) {
+	if user == nil || tx == nil {
+		return -1, errors.New("invalid input parameter")
 	}
 
 	userID, err := r.pg.GetUserIdByTgID(tx, user.TgID)
 	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
+		return -1, err
 	}
 
-	err = r.pg.CommitTx(tx)
 	return userID, err
 }
 
 // Удаляет юзера из бд
-func (r *repoImpl) DeleteUser(user *entity.User) error {
-	if user == nil {
-		return errors.New("value 'user' is nil")
+func (r *repoImpl) DeleteUser(tx *sql.Tx, user *entity.User) error {
+	if user == nil || tx == nil {
+		return errors.New("invalid input parameter")
 	}
 
-	tx, err := r.pg.BeginTx()
+	err := r.pg.DeleteUser(tx, user.TgID)
 	if err != nil {
 		return err
 	}
-
-	err = r.pg.DeleteUser(tx, user.TgID)
-	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return errors.Join(err, rbErr)
-	}
-
-	err = r.pg.CommitTx(tx)
 
 	return err
 }
 
 // Добавляет чат в БД и все его производные таблицы
 // Если такой чат уже есть, обновляет данные в таблицах
-func (r *repoImpl) AddChat(chat *entity.Chat) (int64, error) {
-	if chat == nil {
-		return -1, errors.New("value 'chat' is nil")
-	}
-
-	tx, err := r.pg.BeginTx()
-	if err != nil {
-		return -1, err
+func (r *repoImpl) AddChat(tx *sql.Tx, chat *entity.Chat) (int64, error) {
+	if chat == nil || tx == nil {
+		return -1, errors.New("invalid input parameter")
 	}
 
 	// Проверяем что такой чат еще не существует
 	chatDTO, err := r.pg.GetChat(tx, chat.TgID)
 	if err != nil && err != sql.ErrNoRows {
-		r.pg.RollbackTx(tx)
 		return -1, err
 	}
 	if err == sql.ErrNoRows {
-		r.pg.RollbackTx(tx)
-		return r.UpdateChat(chat)
+		return r.UpdateChat(tx, chat)
 	}
 
 	// Добавляем чат в основную таблицу
@@ -197,15 +184,17 @@ func (r *repoImpl) AddChat(chat *entity.Chat) (int64, error) {
 	chatDTO.LastCatChoice = chat.LastCatChoice
 
 	// Проверяем что все юзеры из чата есть в БД
-	chatDTO.LastPesID, err = r.pg.AddUser(tx, chat.LastPes)
-	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
+	if chat.LastPes != nil {
+		chatDTO.LastPesID, err = r.pg.AddUser(tx, *chat.LastPes)
+		if err != nil {
+			return -1, err
+		}
 	}
-	chatDTO.LastCatID, err = r.pg.AddUser(tx, chat.LastCat)
-	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
+	if chat.LastCat != nil {
+		chatDTO.LastCatID, err = r.pg.AddUser(tx, *chat.LastCat)
+		if err != nil {
+			return -1, err
+		}
 	}
 
 	chatDTO.OpPerTimeLimiterID, err = r.pg.AddLimiter(tx, psql.LimiterDTO{
@@ -215,8 +204,7 @@ func (r *repoImpl) AddChat(chat *entity.Chat) (int64, error) {
 		Tokens: chat.OpPerTime.Tokens(),
 	})
 	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
+		return -1, err
 	}
 
 	chatDTO.LuckyCatLimiterID, err = r.pg.AddLimiter(tx, psql.LimiterDTO{
@@ -226,8 +214,7 @@ func (r *repoImpl) AddChat(chat *entity.Chat) (int64, error) {
 		Tokens: chat.LuckyCatLimiter.Tokens(),
 	})
 	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
+		return -1, err
 	}
 
 	chatDTO.LuckyPesLimiterID, err = r.pg.AddLimiter(tx, psql.LimiterDTO{
@@ -237,14 +224,12 @@ func (r *repoImpl) AddChat(chat *entity.Chat) (int64, error) {
 		Tokens: chat.LuckyPesLimiter.Tokens(),
 	})
 	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
+		return -1, err
 	}
 
 	chatId, err := r.pg.AddChat(tx, chatDTO)
 	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
+		return -1, err
 	}
 
 	for _, user := range chat.Members {
@@ -292,30 +277,21 @@ func (r *repoImpl) AddChat(chat *entity.Chat) (int64, error) {
 		r.pg.CommitTx(eventTx)
 	}
 
-	err = tx.Commit()
-
 	return chatId, err
 }
 
-func (r *repoImpl) UpdateChat(chat *entity.Chat) (int64, error) {
-	if chat == nil {
-		return -1, errors.New("value 'chat' is nil")
-	}
-
-	tx, err := r.pg.BeginTx()
-	if err != nil {
-		return -1, err
+func (r *repoImpl) UpdateChat(tx *sql.Tx, chat *entity.Chat) (int64, error) {
+	if chat == nil || tx == nil {
+		return -1, errors.New("invalid input parameter")
 	}
 
 	// Проверяем что такой чат еще не существует
 	chatDTO, err := r.pg.GetChat(tx, chat.TgID)
 	if err != nil && err != sql.ErrNoRows {
-		r.pg.RollbackTx(tx)
 		return -1, err
 	}
 	if err == sql.ErrNoRows {
-		r.pg.RollbackTx(tx)
-		return r.AddChat(chat)
+		return r.AddChat(tx, chat)
 	}
 
 	chatDTO.Title = chat.Title
@@ -365,8 +341,7 @@ func (r *repoImpl) UpdateChat(chat *entity.Chat) (int64, error) {
 
 	chatId, err := r.pg.UpdateChat(tx, chatDTO)
 	if err != nil {
-		rbErr := r.pg.RollbackTx(tx)
-		return -1, errors.Join(err, rbErr)
+		return -1, err
 	}
 
 	for _, user := range chat.Members {
@@ -414,63 +389,72 @@ func (r *repoImpl) UpdateChat(chat *entity.Chat) (int64, error) {
 		r.pg.CommitTx(eventTx)
 	}
 
-	err = r.pg.CommitTx(tx)
 	return chatId, err
 }
 
-func (r *repoImpl) GetChatByTgId(chatId int64) (entity.Chat, error) {
-	tx, err := r.pg.BeginTx()
-	if err != nil {
-		return entity.Chat{}, err
+func (r *repoImpl) GetChatByTgId(tx *sql.Tx, chatId int64) (entity.Chat, error) {
+	if tx == nil || chatId < 0 {
+		return entity.Chat{}, errors.New("invalid input parameter")
 	}
 
 	chatDTO, err := r.pg.GetChat(tx, chatId)
 	if err != nil {
-		r.pg.RollbackTx(tx)
 		return entity.Chat{}, err
 	}
 
-	lastCat, err := r.pg.GetUserIdByTgID(tx, chatDTO.LastCatID)
+	lastCat, err := r.pg.GetUserByTgID(tx, chatDTO.LastCatID)
 	if err != nil {
-		r.pg.RollbackTx(tx)
 		return entity.Chat{}, err
 	}
 
-	lastPes, err := r.pg.GetUserIdByTgID(tx, chatDTO.LastPesID)
+	lastPes, err := r.pg.GetUserByTgID(tx, chatDTO.LastPesID)
 	if err != nil {
-		r.pg.RollbackTx(tx)
 		return entity.Chat{}, err
 	}
 
-	users, err := r.pg.GetChatMembers(tx, chatId)
+	users, err := r.pg.GetChatMembersByGroupId(tx, chatDTO.Id)
 	if err != nil {
-		r.pg.RollbackTx(tx)
 		return entity.Chat{}, err
 	}
 
-	events, err := r.pg.GetChatEvents(tx, chatId)
+	eventsDTO, err := r.pg.GetChatEvents(tx, chatId)
 	if err != nil {
-		r.pg.RollbackTx(tx)
 		return entity.Chat{}, err
+	}
+	var events []entity.ChatEvent
+	for _, event := range eventsDTO {
+		events = append(events, entity.ChatEvent{
+			CronID:     event.CronID,
+			TgID:       event.TgID,
+			Title:      event.Title,
+			Message:    event.Message,
+			TimeConfig: event.TimeConfig,
+		})
 	}
 
-	opLimiter, err := r.pg.GetLimiterByID(tx, chatDTO.OpPerTimeLimiterID)
+	opLimiterDTO, err := r.pg.GetLimiterByID(tx, chatDTO.OpPerTimeLimiterID)
 	if err != nil {
-		r.pg.RollbackTx(tx)
 		return entity.Chat{}, err
 	}
+	opLimiter := rate.Limiter{}
+	opLimiter.SetLimit(rate.Limit(opLimiterDTO.Limit))
+	opLimiter.SetBurst(opLimiterDTO.Burst)
 
-	luckyCatLimiter, err := r.pg.GetLimiterByID(tx, chatDTO.LuckyCatLimiterID)
+	luckyCatLimiterDTO, err := r.pg.GetLimiterByID(tx, chatDTO.LuckyCatLimiterID)
 	if err != nil {
-		r.pg.RollbackTx(tx)
 		return entity.Chat{}, err
 	}
+	luckyCatLimiter := rate.Limiter{}
+	luckyCatLimiter.SetLimit(rate.Limit(luckyCatLimiterDTO.Limit))
+	luckyCatLimiter.SetBurst(luckyCatLimiterDTO.Burst)
 
-	luckyPesLimiter, err := r.pg.GetLimiterByID(tx, chatDTO.LuckyPesLimiterID)
+	luckyPesLimiterDTO, err := r.pg.GetLimiterByID(tx, chatDTO.LuckyPesLimiterID)
 	if err != nil {
-		r.pg.RollbackTx(tx)
 		return entity.Chat{}, err
 	}
+	luckyPesLimiter := rate.Limiter{}
+	luckyPesLimiter.SetLimit(rate.Limit(luckyPesLimiterDTO.Limit))
+	luckyPesLimiter.SetBurst(luckyPesLimiterDTO.Burst)
 
 	return entity.Chat{
 		TgID:            chatDTO.TgID,
@@ -480,61 +464,130 @@ func (r *repoImpl) GetChatByTgId(chatId int64) (entity.Chat, error) {
 		LastPes:         lastPes,
 		LastCatChoice:   chatDTO.LastCatChoice,
 		LastPesChoice:   chatDTO.LastPesChoice,
-		OpPerTime:       opLimiter,
-		LuckyCatLimiter: luckyCatLimiter,
-		LuckyPesLimiter: luckyPesLimiter,
+		OpPerTime:       &opLimiter,
+		LuckyCatLimiter: &luckyCatLimiter,
+		LuckyPesLimiter: &luckyPesLimiter,
 		Members:         users,
 		Events:          events,
 	}, err
+}
+
+func (r *repoImpl) DeleteChat(tx *sql.Tx, chat *entity.Chat) error {
+	if chat == nil || tx == nil {
+		return errors.New("invalid input parameter")
+	}
+
+	// Удаляем ивенты
+
+	// Удаляем ивенты чата
+
+	// Удаляем лимитеры чата
+
+	// Удаляем мемберов чата
+
+	// Удаляем сам чат
+	err = r.pg.DeleteChat(tx, *chat)
+	if err != nil {
+		r.pg.RollbackTx(tx)
+		return err
+	}
+
+	return err
+}
+
+func (r *repoImpl) AddUserInChat(tx *sql.Tx, userId, chatID int64) (int64, error) {
+	if tx == nil || userId < 0 || chatID < 0 {
+		return -1, errors.New("invalid input parameter")
+	}
 
 }
 
-func (r *repoImpl) DeleteChat(chat *entity.Chat) error {
+func (r *repoImpl) DeleteUserFromChat(tx *sql.Tx, userTgId, chatTgId int64) error {
+	if tx == nil || userTgId <= 0 || chatTgId <= 0 {
+		return errors.New("invalid input parameter")
+	}
+
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *repoImpl) AddUserInChat(userId, chatID int64) (int64, error) {
+func (r *repoImpl) AddEvent(tx *sql.Tx, event *entity.ChatEvent) (int64, error) {
+	if tx == nil || event == nil {
+		return -1, errors.New("invalid input parameter")
+	}
+
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *repoImpl) DeleteUserFromChat(userId, chatId int64) error {
+func (r *repoImpl) GetEvent(tx *sql.Tx, event *entity.ChatEvent) (int64, error) {
+	if tx == nil || event == nil {
+		return -1, errors.New("invalid input parameter")
+	}
+
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *repoImpl) AddEvent(event entity.ChatEvent) (int64, error) {
+func (r *repoImpl) UpdateEvent(tx *sql.Tx, event *entity.ChatEvent) (int64, error) {
+	if tx == nil || event == nil {
+		return -1, errors.New("invalid input parameter")
+	}
+
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *repoImpl) GetEvent(event entity.ChatEvent) (int64, error) {
+func (r *repoImpl) DeleteEvent(tx *sql.Tx, event *entity.ChatEvent) error {
+	if tx == nil || event == nil {
+		return errors.New("invalid input parameter")
+	}
+
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *repoImpl) UpdateEvent(event entity.ChatEvent) (int64, error) {
+func (r *repoImpl) AddEventInChat(tx *sql.Tx, eventId, chatId int64) (int64, error) {
+	if tx == nil || eventId < 0 || chatId < 0 {
+		return -1, errors.New("invalid input parameter")
+	}
+
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *repoImpl) DeleteEvent(event entity.ChatEvent) error {
+func (r *repoImpl) DeleteEventFromChat(tx *sql.Tx, eventId, chatId int64) error {
+	if tx == nil || eventId < 0 || chatId < 0 {
+		return errors.New("invalid input parameter")
+	}
+
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *repoImpl) AddEventInChat(eventId, chatId int64) (int64, error) {
+func (r *repoImpl) GetUserGroups(tx *sql.Tx, user *entity.User) ([]entity.Chat, error) {
+	if tx == nil || user == nil {
+		return []entity.Chat{}, errors.New("invalid input parameter")
+	}
+
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *repoImpl) DeleteEventFromChat(eventId, chatId int64) error {
+func (r *repoImpl) GetAllChats(tx *sql.Tx) ([]entity.Chat, error) {
+	if tx == nil {
+		return []entity.Chat{}, errors.New("invalid input parameter")
+	}
+
 	//TODO implement me
 	panic("implement me")
 }
 
-func (r *repoImpl) GetUserGroups(user *entity.User) ([]entity.Chat, error) {
+func (r *repoImpl) IsAdmin(tx *sql.Tx, userTgId int64) (bool, error) {
+	if tx == nil || userTgId <= 0 {
+		return false, errors.New("invalid input parameter")
+	}
+
 	//TODO implement me
 	panic("implement me")
 }
